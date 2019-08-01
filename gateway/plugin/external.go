@@ -101,6 +101,8 @@ func (s ExternalServiceQuery) GetReplicas(serviceName string) (scaling.ServiceQu
 	maxReplicas := uint64(scaling.DefaultMaxReplicas)
 	scalingFactor := uint64(scaling.DefaultScalingFactor)
 	availableReplicas := function.AvailableReplicas
+	realTime := float64(0)
+	duration := uint64(60)
 
 	if function.Labels != nil {
 		labels := *function.Labels
@@ -114,6 +116,9 @@ func (s ExternalServiceQuery) GetReplicas(serviceName string) (scaling.ServiceQu
 		} else {
 			log.Printf("Bad Scaling Factor: %d, is not in range of [0 - 100]. Will fallback to %d", extractedScalingFactor, scalingFactor)
 		}
+
+		realTime = extractLabelRealValue(labels["realtime"], realTime)
+		duration = extractLabelValue(labels["duration"], duration)
 	}
 
 	log.Printf("GetReplicas took: %fs", time.Since(start).Seconds())
@@ -124,6 +129,8 @@ func (s ExternalServiceQuery) GetReplicas(serviceName string) (scaling.ServiceQu
 		MinReplicas:       minReplicas,
 		ScalingFactor:     scalingFactor,
 		AvailableReplicas: availableReplicas,
+		Realtime:          realTime,
+		Duration:          duration,
 	}, err
 }
 
@@ -181,4 +188,21 @@ func extractLabelValue(rawLabelValue string, fallback uint64) uint64 {
 	}
 
 	return uint64(value)
+}
+
+// extractLabelValue will parse the provided raw label value and if it fails
+// it will return the provided fallback value and log an message
+func extractLabelRealValue(rawLabelValue string, fallback float64) float64 {
+	if len(rawLabelValue) <= 0 {
+		return fallback
+	}
+
+	value, err := strconv.ParseFloat(rawLabelValue, 64)
+
+	if err != nil {
+		log.Printf("Provided label value %s should be of type float", rawLabelValue)
+		return fallback
+	}
+
+	return float64(value)
 }

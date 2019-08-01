@@ -3,6 +3,10 @@
 
 package scaling
 
+import (
+	"container/list"
+)
+
 // ServiceQuery provides interface for replica querying/setting
 type ServiceQuery interface {
 	GetReplicas(service string) (response ServiceQueryResponse, err error)
@@ -16,4 +20,7 @@ type ServiceQueryResponse struct {
 	MinReplicas       uint64
 	ScalingFactor     uint64
 	AvailableReplicas uint64
+	Realtime          float64
+	Duration          uint64
+	PastAllocations   list.List
 }

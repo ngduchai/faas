@@ -76,6 +76,8 @@ func TestGetReplicasExistentFn(t *testing.T) {
 		MinReplicas:       uint64(scaling.DefaultMinReplicas),
 		ScalingFactor:     uint64(scaling.DefaultScalingFactor),
 		AvailableReplicas: 0,
+		Realtime:          float64(0),
+		Duration:          uint64(60),
 	}
 
 	var creds auth.BasicAuthCredentials
@@ -90,7 +92,16 @@ func TestGetReplicasExistentFn(t *testing.T) {
 		t.Logf("Expected err to be nil got: %s ", err.Error())
 		t.Fail()
 	}
-	if svcQryResp != expectedSvcQryResp {
+	//if svcQryResp != expectedSvcQryResp {
+	if svcQryResp.Replicas != expectedSvcQryResp.Replicas ||
+		svcQryResp.MaxReplicas != expectedSvcQryResp.MaxReplicas ||
+		svcQryResp.MinReplicas != expectedSvcQryResp.MinReplicas ||
+		svcQryResp.ScalingFactor != expectedSvcQryResp.ScalingFactor ||
+		svcQryResp.AvailableReplicas != expectedSvcQryResp.AvailableReplicas ||
+		svcQryResp.Realtime != expectedSvcQryResp.Realtime ||
+		svcQryResp.Duration != expectedSvcQryResp.Duration ||
+		svcQryResp.PastAllocations.Len() != 0 {
+
 		t.Logf("Unexpected return values - wanted %+v, got: %+v ", expectedSvcQryResp, svcQryResp)
 		t.Fail()
 	}

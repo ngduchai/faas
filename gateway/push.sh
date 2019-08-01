@@ -23,5 +23,6 @@ fi
 
 echo Pushing openfaas/gateway:$eTAG
 
-docker push openfaas/gateway:$eTAG
+#docker push openfaas/gateway:$eTAG
+docker push ngduchai/gateway:$eTAG
 

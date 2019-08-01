@@ -3,9 +3,9 @@ ARG GIT_COMMIT_SHA
 ARG GIT_COMMIT_MESSAGE
 ARG VERSION='dev'
 
-RUN curl -sLSf \
-  https://raw.githubusercontent.com/teamserverless/license-check/master/get.sh | sh \
-  && mv ./license-check /usr/bin/
+#RUN curl -sLSf \
+#  https://raw.githubusercontent.com/teamserverless/license-check/master/get.sh | sh \
+#  && mv ./license-check /usr/bin/
 
 WORKDIR /go/src/github.com/openfaas/faas/gateway
 
@@ -21,17 +21,31 @@ COPY queue          queue
 COPY plugin         plugin
 COPY version        version
 COPY scaling        scaling
+COPY realtime	    realtime
 COPY server.go      .
 
-# Run a gofmt and exclude all vendored code.
-RUN license-check -path ./ --verbose=false "Alex Ellis" "OpenFaaS Project" "OpenFaaS Authors" "OpenFaaS Author(s)" \
-    && test -z "$(gofmt -l $(find . -type f -name '*.go' -not -path "./vendor/*"))" \
-    && go test $(go list ./... | grep -v integration | grep -v /vendor/ | grep -v /template/) -cover \
+## Run a gofmt and exclude all vendored code.
+#RUN license-check -path ./ --verbose=false "Alex Ellis" "OpenFaaS Project" "OpenFaaS Authors" "OpenFaaS Author(s)" \
+#    && test -z "$(gofmt -l $(find . -type f -name '*.go' -not -path "./vendor/*"))" \
+#    && go test $(go list ./... | grep -v integration | grep -v /vendor/ | grep -v /template/) -cover \
+#    && CGO_ENABLED=0 GOOS=linux go build --ldflags "-s -w \
+#    -X github.com/openfaas/faas/gateway/version.GitCommitSHA=${GIT_COMMIT_SHA}\
+#    -X \"github.com/openfaas/faas/gateway/version.GitCommitMessage=${GIT_COMMIT_MESSAGE}\"\
+#    -X github.com/openfaas/faas/gateway/version.Version=${VERSION}" \
+#    -a -installsuffix cgo -o gateway .
+
+## Run a gofmt and exclude all vendored code.
+#RUN license-check -path ./ --verbose=false "Alex Ellis" "OpenFaaS Project" "OpenFaaS Authors" "OpenFaaS Author(s)" \
+#   && test -z "$(gofmt -l $(find . -type f -name '*.go' -not -path "./vendor/*"))" \
+#    && go test $(go list ./... | grep -v integration | grep -v /vendor/ | grep -v /template/) -cover \
+RUN go test $(go list ./... | grep -v integration | grep -v /vendor/ | grep -v /template/) -cover \
     && CGO_ENABLED=0 GOOS=linux go build --ldflags "-s -w \
     -X github.com/openfaas/faas/gateway/version.GitCommitSHA=${GIT_COMMIT_SHA}\
     -X \"github.com/openfaas/faas/gateway/version.GitCommitMessage=${GIT_COMMIT_MESSAGE}\"\
     -X github.com/openfaas/faas/gateway/version.Version=${VERSION}" \
     -a -installsuffix cgo -o gateway .
+
+
 
 FROM alpine:3.8
 

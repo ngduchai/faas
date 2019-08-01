@@ -35,6 +35,8 @@ func (fc *FunctionCache) Set(functionName string, serviceQueryResponse ServiceQu
 
 	if _, exists := fc.Cache[functionName]; !exists {
 		fc.Cache[functionName] = &FunctionMeta{}
+	} else {
+		serviceQueryResponse.PastAllocations = fc.Cache[functionName].ServiceQueryResponse.PastAllocations
 	}
 
 	fc.Cache[functionName].LastRefresh = time.Now()
@@ -59,4 +61,38 @@ func (fc *FunctionCache) Get(functionName string) (ServiceQueryResponse, bool) {
 	}
 
 	return replicas, hit
+}
+
+// Update Allcation list
+func (fc *FunctionCache) UpdateInvocation(functionName string, invokeTime time.Time) (uint64, time.Duration, bool) {
+	totalInvocation := uint64(0)
+	gapLength := time.Since(invokeTime)
+	//hit := false
+	added := false
+	fc.Sync.RLock()
+	defer fc.Sync.RUnlock()
+
+	if val, exists := fc.Cache[functionName]; exists {
+		//hit = !val.Expired(fc.Expiry)
+		allocations := &val.ServiceQueryResponse.PastAllocations
+		for allocations.Len() > 0 {
+			pastInvocationTime := allocations.Front()
+			diff := invokeTime.Sub(pastInvocationTime.Value.(time.Time))
+			if diff.Seconds() > 1.0 {
+				allocations.Remove(pastInvocationTime)
+			} else {
+				break
+			}
+		}
+		totalInvocation = uint64(allocations.Len())
+		if val.ServiceQueryResponse.Realtime > float64(totalInvocation) {
+			allocations.PushBack(invokeTime)
+			added = true
+		}
+		gapLength = invokeTime.Sub(allocations.Front().Value.(time.Time))
+
+	}
+
+	//return totalInvocation, gapLength, hit, added
+	return totalInvocation, gapLength, added
 }

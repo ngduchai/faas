@@ -32,6 +32,7 @@ type FunctionScaleResult struct {
 	Error     error
 	Found     bool
 	Duration  time.Duration
+	Replicas  uint64
 }
 
 // Scale scales a function from zero replicas to 1 or the value set in

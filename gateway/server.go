@@ -14,6 +14,7 @@ import (
 	"github.com/openfaas/faas/gateway/handlers"
 	"github.com/openfaas/faas/gateway/metrics"
 	"github.com/openfaas/faas/gateway/plugin"
+	"github.com/openfaas/faas/gateway/realtime"
 	"github.com/openfaas/faas/gateway/scaling"
 	"github.com/openfaas/faas/gateway/types"
 	natsHandler "github.com/openfaas/nats-queue-worker/handler"
@@ -25,6 +26,7 @@ func main() {
 	readConfig := types.ReadConfig{}
 	config := readConfig.Read(osEnv)
 
+	log.Printf("Start RTS Gateway")
 	log.Printf("HTTP Read Timeout: %s", config.ReadTimeout)
 	log.Printf("HTTP Write Timeout: %s", config.WriteTimeout)
 
@@ -85,16 +87,28 @@ func main() {
 
 	faasHandlers.Proxy = handlers.MakeForwardingProxyHandler(reverseProxy, functionNotifiers, functionURLResolver, functionURLTransformer)
 
+	alertHandler := plugin.NewExternalServiceQuery(*config.FunctionsProviderURL, credentials)
+	realtimeHandleConfig := scaling.ScalingConfig{
+		MaxPollCount:         uint(1000),
+		SetScaleRetries:      uint(20),
+		FunctionPollInterval: time.Millisecond * 50,
+		CacheExpiry:          time.Second * 5,
+		ServiceQuery:         alertHandler,
+	}
+	realtime.SetupRealtime(realtimeHandleConfig)
+
 	faasHandlers.RoutelessProxy = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
 	faasHandlers.ListFunctions = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
-	faasHandlers.DeployFunction = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
+	//faasHandlers.DeployFunction = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
+	faasHandlers.DeployFunction = realtime.MakeRealtimeDeployHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
 	faasHandlers.DeleteFunction = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
-	faasHandlers.UpdateFunction = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
+	//faasHandlers.UpdateFunction = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
+	faasHandlers.UpdateFunction = realtime.MakeRealtimeUpdateHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
 	faasHandlers.QueryFunction = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
 	faasHandlers.InfoHandler = handlers.MakeInfoHandler(handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer))
 	faasHandlers.SecretHandler = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
 
-	alertHandler := plugin.NewExternalServiceQuery(*config.FunctionsProviderURL, credentials)
+	//alertHandler := plugin.NewExternalServiceQuery(*config.FunctionsProviderURL, credentials)
 	faasHandlers.Alert = handlers.MakeNotifierWrapper(
 		handlers.MakeAlertHandler(alertHandler),
 		forwardingNotifiers,
@@ -168,6 +182,9 @@ func main() {
 
 		functionProxy = handlers.MakeScalingHandler(faasHandlers.Proxy, scalingConfig)
 	}
+
+	functionProxy = realtime.MakeRealtimeInvokeHandler(faasHandlers.Proxy)
+
 	// r.StrictSlash(false)	// This didn't work, so register routes twice.
 	r.HandleFunc("/function/{name:[-a-zA-Z_0-9]+}", functionProxy)
 	r.HandleFunc("/function/{name:[-a-zA-Z_0-9]+}/", functionProxy)

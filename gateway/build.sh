@@ -24,7 +24,8 @@ if [ "$1" ] ; then
   fi
 fi
 
-NS=openfaas
+#NS=openfaas
+NS=ngduchai
 
 echo Building $NS/gateway:$eTAG
 

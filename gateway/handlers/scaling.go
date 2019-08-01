@@ -23,6 +23,7 @@ func MakeScalingHandler(next http.HandlerFunc, config scaling.ScalingConfig) htt
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		functionName := getServiceName(r.URL.String())
+		log.Printf("AutoScale function %s", functionName)
 		res := scaler.Scale(functionName)
 
 		if !res.Found {

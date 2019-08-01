@@ -36,6 +36,7 @@ type CreateFunctionRequest struct {
 
 	// Labels are metadata for functions which may be used by the
 	// back-end for making scheduling or routing decisions
+	// @ndhai: we move realtime into this map to minimize code modification
 	Labels *map[string]string `json:"labels"`
 
 	// Annotations are metadata for functions which may be used by the
