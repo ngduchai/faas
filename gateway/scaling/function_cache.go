@@ -4,6 +4,7 @@
 package scaling
 
 import (
+        "log"
 	"sync"
 	"time"
 )
@@ -69,8 +70,13 @@ func (fc *FunctionCache) UpdateInvocation(functionName string, invokeTime time.T
 	gapLength := time.Since(invokeTime)
 	//hit := false
 	added := false
-	fc.Sync.RLock()
-	defer fc.Sync.RUnlock()
+	//fc.Sync.RLock()
+	//defer fc.Sync.RUnlock()
+        fc.Sync.Lock()
+	defer fc.Sync.Unlock()
+
+	//log.Printf("Check function realtime for %s", functionName)
+
 
 	if val, exists := fc.Cache[functionName]; exists {
 		//hit = !val.Expired(fc.Expiry)
@@ -78,14 +84,17 @@ func (fc *FunctionCache) UpdateInvocation(functionName string, invokeTime time.T
 		for allocations.Len() > 0 {
 			pastInvocationTime := allocations.Front()
 			diff := invokeTime.Sub(pastInvocationTime.Value.(time.Time))
-			if diff.Seconds() > 1.0 {
+			log.Printf("%f %f", diff.Seconds(), 1.0 / val.ServiceQueryResponse.Realtime)
+                        //if diff.Seconds() > 1.0 {
+			if diff.Seconds() > (1.0 / val.ServiceQueryResponse.Realtime) {
 				allocations.Remove(pastInvocationTime)
 			} else {
 				break
 			}
 		}
 		totalInvocation = uint64(allocations.Len())
-		if val.ServiceQueryResponse.Realtime > float64(totalInvocation) {
+		//if val.ServiceQueryResponse.Realtime > float64(totalInvocation) {
+		if 1.0 > float64(totalInvocation) {
 			allocations.PushBack(invokeTime)
 			added = true
 		}

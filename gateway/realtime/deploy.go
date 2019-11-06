@@ -202,11 +202,12 @@ func MakeRealtimeInvokeHandler(next http.HandlerFunc) http.HandlerFunc {
 		tokens := strings.Split(originalURL, "/")
 		functionName := tokens[len(tokens)-1]
 		log.Printf("Invoke function %s", functionName)
-		scaler := getScalerInstance()
+
+                scaler := getScalerInstance()
 
 		added := false
 		numTries := 0
-		retryLimit := 10
+		retryLimit := 1
 		for !added && numTries < retryLimit {
 
 			invokeTime := time.Now()
@@ -221,22 +222,25 @@ func MakeRealtimeInvokeHandler(next http.HandlerFunc) http.HandlerFunc {
 					return
 				}
 			}
-			limit := uint64(scaleInfo.Realtime)
-			if limit == 0 {
+			limit := scaleInfo.Realtime
+			if limit == 0.0 {
 				// Best effort invocation when no guarantee is enforced
 				added = true
 				break
 			}
-			total := limit
+			//total := limit
+                        //total := uint64(0)
 			//total, gap, added := scaler.Cache.UpdateInvocation(functionName, invokeTime)
-			total, _, added = scaler.Cache.UpdateInvocation(functionName, invokeTime)
+			//total, _, added = scaler.Cache.UpdateInvocation(functionName, invokeTime)
+			_, _, added = scaler.Cache.UpdateInvocation(functionName, invokeTime)
 
 			if !added {
 				//wait := 1.0 - gap.Seconds() + 0.001
 				//wait := 1.0
-				wait := 1 / scaleInfo.Realtime // --> try to spread out the requests
+				//wait := 1 / scaleInfo.Realtime // --> try to spread out the requests
+				wait := 1 / (100 * scaleInfo.Realtime) // --> try to spread out the requests
 				numTries++
-				log.Printf("[Invoke %d] Number of requests = %d >= limit = %d for function %s. Pause invocation by %f second(s)", numTries, total, limit, functionName, wait)
+				//log.Printf("[Invoke %d] Number of requests = %d >= limit = %f for function %s. Pause invocation by %f second(s)", numTries, total, limit, functionName, wait)
 				time.Sleep(time.Duration(wait*1000) * time.Millisecond)
 			}
 		}
@@ -418,7 +422,7 @@ func (f *FunctionRealtimeScaler) RealtimeScale(functionName string) scaling.Func
 
 	f.Cache.Set(functionName, scaleInfo)
 
-	realtimeReplicas := uint64(math.Ceil(scaleInfo.Realtime * float64(scaleInfo.Duration)))
+	realtimeReplicas := uint64(math.Ceil(scaleInfo.Realtime * scaleInfo.FunctionSize * float64(scaleInfo.Duration)))
 
 	log.Printf("Realtime: %f, Duration %d", scaleInfo.Realtime, scaleInfo.Duration)
 	log.Printf("Scale: Required: %d, Current %d", realtimeReplicas, scaleInfo.Replicas)

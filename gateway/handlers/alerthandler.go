@@ -76,7 +76,7 @@ func scaleService(alert requests.PrometheusInnerAlert, service scaling.ServiceQu
 
 	if len(serviceName) > 0 {
 		queryResponse, getErr := service.GetReplicas(serviceName)
-		if getErr == nil {
+		if getErr == nil && queryResponse.Realtime == 0.0 {
 			status := alert.Status
 
 			newReplicas := CalculateReplicas(status, queryResponse.Replicas, uint64(queryResponse.MaxReplicas), queryResponse.MinReplicas, queryResponse.ScalingFactor)
