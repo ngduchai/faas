@@ -95,7 +95,7 @@ func main() {
 		CacheExpiry:          time.Second * 5,
 		ServiceQuery:         alertHandler,
 	}
-	realtime.SetupRealtime(realtimeHandleConfig)
+	scaling.SetupRealtime(realtimeHandleConfig)
 
 	faasHandlers.RoutelessProxy = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
 	faasHandlers.ListFunctions = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)

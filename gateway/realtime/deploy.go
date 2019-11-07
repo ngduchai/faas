@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/openfaas/faas/gateway/handlers"
@@ -21,32 +20,7 @@ import (
 	"github.com/openfaas/faas/gateway/types"
 )
 
-type FunctionRealtimeScaler scaling.FunctionScaler
-
-var scalerInstance *FunctionRealtimeScaler
-var once sync.Once
-
-func SetupRealtime(config scaling.ScalingConfig) {
-	temp := FunctionRealtimeScaler(scaling.NewFunctionScaler(config))
-	scalerInstance = &temp
-
-}
-
-func getScalerInstance() *FunctionRealtimeScaler {
-	once.Do(func() {
-		if scalerInstance == nil {
-			config := scaling.ScalingConfig{
-				MaxPollCount:         uint(1000),
-				SetScaleRetries:      uint(20),
-				FunctionPollInterval: time.Millisecond * 50,
-				CacheExpiry:          time.Second * 5,
-				//ServiceQuery:         scaling.ServiceQuery{},
-			}
-			SetupRealtime(config)
-		}
-	})
-	return scalerInstance
-}
+//type FunctionRealtimeScaler scaling.FunctionScaler
 
 // Forward the deploy request to the backend. However, we also reserve instances for
 // guaranteeing realtime invocation
@@ -57,7 +31,7 @@ func MakeRealtimeDeployHandler(proxy *types.HTTPClientReverseProxy, notifiers []
 		writeRequestURI = exists
 	}
 
-	scaler := getScalerInstance()
+	//scaler := scaling.GetScalerInstance()
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		baseURL := baseURLResolver.Resolve(r)
@@ -92,7 +66,7 @@ func MakeRealtimeDeployHandler(proxy *types.HTTPClientReverseProxy, notifiers []
 				// scaling information
 				functionName := request.Service
 				// Scale!
-				res := scaler.RealtimeScale(functionName)
+				res := RealtimeScale(functionName)
 
 				if !res.Found || res.Error != nil {
 					errStr := fmt.Sprintf("error finding function %s: %s", functionName, res.Error.Error())
@@ -131,7 +105,7 @@ func MakeRealtimeUpdateHandler(proxy *types.HTTPClientReverseProxy, notifiers []
 		writeRequestURI = exists
 	}
 
-	scaler := getScalerInstance()
+	//scaler := scaling.GetScalerInstance()
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		baseURL := baseURLResolver.Resolve(r)
@@ -166,7 +140,7 @@ func MakeRealtimeUpdateHandler(proxy *types.HTTPClientReverseProxy, notifiers []
 				// scaling information
 				functionName := request.Service
 				// Scale!
-				res := scaler.RealtimeScale(functionName)
+				res := RealtimeScale(functionName)
 
 				if !res.Found || res.Error != nil {
 					errStr := fmt.Sprintf("error finding function %s: %s", functionName, res.Error.Error())
@@ -203,9 +177,13 @@ func MakeRealtimeInvokeHandler(next http.HandlerFunc) http.HandlerFunc {
 		functionName := tokens[len(tokens)-1]
 		log.Printf("Invoke function %s", functionName)
 
-                scaler := getScalerInstance()
+		scaler := scaling.GetScalerInstance()
 
-		added := false
+		callid := r.Header.Get("X-Call-Id")
+		_, added := scaler.BypassMap.Load(callid)
+		if added {
+			scaler.BypassMap.Delete(callid)
+		}
 		numTries := 0
 		retryLimit := 1
 		for !added && numTries < retryLimit {
@@ -229,7 +207,7 @@ func MakeRealtimeInvokeHandler(next http.HandlerFunc) http.HandlerFunc {
 				break
 			}
 			//total := limit
-                        //total := uint64(0)
+			//total := uint64(0)
 			//total, gap, added := scaler.Cache.UpdateInvocation(functionName, invokeTime)
 			//total, _, added = scaler.Cache.UpdateInvocation(functionName, invokeTime)
 			_, _, added = scaler.Cache.UpdateInvocation(functionName, invokeTime)
@@ -380,7 +358,7 @@ func backoff(r routine, attempts int, interval time.Duration) error {
 
 // Scale scales a function from zero replicas to 1 or the value set in
 // the minimum replicas metadata
-func (f *FunctionRealtimeScaler) RealtimeScale(functionName string) scaling.FunctionScaleResult {
+func RealtimeScale(functionName string) scaling.FunctionScaleResult {
 	start := time.Now()
 
 	/*
@@ -407,6 +385,7 @@ func (f *FunctionRealtimeScaler) RealtimeScale(functionName string) scaling.Func
 			scaleInfo = cachedResponse
 		}
 	*/
+	f := scaling.GetScalerInstance()
 
 	scaleInfo, err := f.Config.ServiceQuery.GetReplicas(functionName)
 

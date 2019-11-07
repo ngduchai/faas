@@ -8,10 +8,12 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/openfaas/faas/gateway/metrics"
 	"github.com/openfaas/faas/gateway/queue"
+	"github.com/openfaas/faas/gateway/scaling"
 )
 
 // MakeQueuedProxy accepts work onto a queue
@@ -48,6 +50,37 @@ func MakeQueuedProxy(metrics metrics.MetricOptions, wildcard bool, canQueueReque
 			callbackURL = urlVal
 		}
 
+		// Check if the function can be invoked safely
+		scaler := scaling.GetScalerInstance()
+		invokeTime := time.Now()
+		added := false
+		_, hit := scaler.Cache.Get(name)
+		if !hit {
+			scaleInfo, err := scaler.Config.ServiceQuery.GetReplicas(name)
+			if err == nil {
+				scaler.Cache.Set(name, scaleInfo)
+			} else {
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(err.Error()))
+				fmt.Println(err)
+				return
+			}
+
+			limit := scaleInfo.Realtime
+			if limit == 0.0 {
+				// Best effort invocation when no guarantee is enforced
+				added = true
+			} else {
+				_, _, added = scaler.Cache.UpdateInvocation(name, invokeTime)
+			}
+		}
+
+		if !added {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("Too many requests"))
+			return
+		}
+
 		req := &queue.Request{
 			Function:    name,
 			Body:        body,
@@ -64,6 +97,15 @@ func MakeQueuedProxy(metrics metrics.MetricOptions, wildcard bool, canQueueReque
 			w.Write([]byte(err.Error()))
 			fmt.Println(err)
 			return
+		}
+
+		callid := r.Header.Get("X-Call-Id")
+		if len(callid) == 0 {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("Unable to create X-Call-Id"))
+			return
+		} else {
+			scaler.BypassMap.Store(callid, true)
 		}
 
 		w.WriteHeader(http.StatusAccepted)

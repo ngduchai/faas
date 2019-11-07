@@ -3,6 +3,7 @@ package scaling
 import (
 	"fmt"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -15,15 +16,17 @@ func NewFunctionScaler(config ScalingConfig) FunctionScaler {
 	}
 
 	return FunctionScaler{
-		Cache:  &cache,
-		Config: config,
+		Cache:     &cache,
+		Config:    config,
+		BypassMap: sync.Map{},
 	}
 }
 
 // FunctionScaler scales from zero
 type FunctionScaler struct {
-	Cache  *FunctionCache
-	Config ScalingConfig
+	Cache     *FunctionCache
+	Config    ScalingConfig
+	BypassMap sync.Map
 }
 
 // FunctionScaleResult holds the result of scaling from zero
@@ -159,4 +162,28 @@ func backoff(r routine, attempts int, interval time.Duration) error {
 		time.Sleep(interval)
 	}
 	return err
+}
+
+var scalerInstance *FunctionScaler
+var once sync.Once
+
+func SetupRealtime(config ScalingConfig) {
+	temp := NewFunctionScaler(config)
+	scalerInstance = &temp
+}
+
+func GetScalerInstance() *FunctionScaler {
+	once.Do(func() {
+		if scalerInstance == nil {
+			config := ScalingConfig{
+				MaxPollCount:         uint(1000),
+				SetScaleRetries:      uint(20),
+				FunctionPollInterval: time.Millisecond * 50,
+				CacheExpiry:          time.Second * 5,
+				//ServiceQuery:         scaling.ServiceQuery{},
+			}
+			SetupRealtime(config)
+		}
+	})
+	return scalerInstance
 }
