@@ -1,34 +1,262 @@
 package realtime
 
-type FuncDesc {
-    Request		*http.Request
-    ProxyClient		*http.Client
-    BaseURL		string
-    RequestURL		string
-    Timeout		time.Duration
-    WriteRequestURI	bool
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/openfaas/faas/gateway/requests"
+	"github.com/openfaas/faas/gateway/scaling"
+)
+
+type ResourceManager struct{}
+
+func (rm ResourceManager) CreateImage(
+	r *http.Request,
+	proxyClient *http.Client,
+	baseURL string,
+	requestURL string,
+	timeout time.Duration,
+	writeRequestURI bool) (*http.Response, error) {
+
+	method := r.Method
+	r.Method = http.MethodPost
+	res, err := processRequest(r, proxyClient, baseURL, requestURL, timeout, writeRequestURI)
+	r.Method = method
+	return res, err
 }
 
-type ResourceManager;
+func (rm ResourceManager) RemoveImage(
+	r *http.Request,
+	proxyClient *http.Client,
+	baseURL string,
+	requestURL string,
+	timeout time.Duration,
+	writeRequestURI bool) (*http.Response, error) {
 
-func createImage(function ) {
+	method := r.Method
+	r.Method = http.MethodDelete
+	res, err := processRequest(r, proxyClient, baseURL, requestURL, timeout, writeRequestURI)
+	r.Method = method
+	return res, err
+}
+
+func (rm ResourceManager) UpdateImage(
+	r *http.Request,
+	proxyClient *http.Client,
+	baseURL string,
+	requestURL string,
+	timeout time.Duration,
+	writeRequestURI bool) (*http.Response, error) {
+
+	method := r.Method
+	r.Method = http.MethodPut
+	res, err := processRequest(r, proxyClient, baseURL, requestURL, timeout, writeRequestURI)
+	r.Method = method
+	return res, err
+}
+
+func processRequest(
+	r *http.Request,
+	proxyClient *http.Client,
+	baseURL string,
+	requestURL string,
+	timeout time.Duration,
+	writeRequestURI bool) (*http.Response, error) {
+
+	res, err := forwardRequest(r, proxyClient, baseURL, requestURL, timeout, writeRequestURI)
+	if err != nil {
+		log.Printf("error with upstream request to: %s, %s\n", requestURL, err.Error())
+	} else if res.StatusCode < 200 || res.StatusCode > 299 {
+		log.Printf("error with upstream request to: %s, Status code: %d\n", requestURL, res.StatusCode)
+	}
+	return res, err
 
 }
 
-func removeImage() {
+// Return realtime, functionsize (= cpus), and duration
+func (rm ResourceManager) RequestRealtimeParams(req *http.Request) (string, float64, float64, uint64, error) {
+	body, err := ioutil.ReadAll(req.Body)
+	if err != nil {
+		log.Printf("Cannot read parameters: %s\n", err.Error())
+		return "", 0.0, 1.0, 60, err
+	}
+	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+	request := requests.CreateFunctionRequest{}
+	err = json.Unmarshal(body, &request)
+	req.Body = rdr
+	if err != nil {
+		log.Printf("Cannot read JSON params: %s", err.Error())
+		return "", 0.0, 1.0, 60, err
+	}
+
+	if request.Labels == nil {
+		// Return default value
+		return request.Service, 0.0, 1.0, 60, nil
+	}
+	functionName := request.Service
+	realtime := extractLabelRealValue((*request.Labels)["realtime"], float64(0))
+	size := extractLabelRealValue((*request.Labels)["functionsize"], float64(1.0))
+	duration := extractLabelValue((*request.Labels)["duration"], uint64(60))
+	return functionName, realtime, size, duration, nil
+}
+
+// Return realtime, functionsize (= cpus), and duration
+func (rm ResourceManager) SetRealtimeParams(
+	req *http.Request,
+	realtime float64,
+	size float64,
+	duration uint64) error {
+
+	body, _ := ioutil.ReadAll(req.Body)
+	//rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+	request := requests.CreateFunctionRequest{}
+	err := json.Unmarshal(body, &request)
+	//req.Body = rdr
+
+	if err != nil {
+		return err
+	}
+	if request.Labels == nil {
+		request.Labels = &map[string]string{}
+	}
+	(*request.Labels)["realtime"] = fmt.Sprint(realtime)
+	(*request.Labels)["functionsize"] = fmt.Sprint(size)
+	(*request.Labels)["duration"] = fmt.Sprint(duration)
+
+	body, err = json.Marshal(request)
+	if err != nil {
+		return err
+	}
+	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+	req.Body = rdr
+	return nil
+}
+
+/* Scale a function by either increasing or decreasing its replicas */
+func (rm ResourceManager) Scale(functionName string, realtimeReplicas uint64) error {
+	f := scaling.GetScalerInstance()
+
+	start := time.Now()
+
+	scaleResult := backoff(func(attempt int) error {
+		queryResponse, err := f.Config.ServiceQuery.GetReplicas(functionName)
+		if err != nil {
+			return err
+		}
+
+		f.Cache.Set(functionName, queryResponse)
+
+		log.Printf("[Scale %d] function=%s --> %d requested", attempt, functionName, realtimeReplicas)
+		setScaleErr := f.Config.ServiceQuery.SetReplicas(functionName, realtimeReplicas)
+		if setScaleErr != nil {
+			return fmt.Errorf("unable to scale function [%s], err: %s", functionName, setScaleErr)
+		}
+
+		return nil
+
+	}, int(f.Config.SetScaleRetries), f.Config.FunctionPollInterval)
+
+	if scaleResult != nil {
+		return scaleResult
+	}
+
+	for i := 0; i < int(f.Config.MaxPollCount); i++ {
+		queryResponse, err := f.Config.ServiceQuery.GetReplicas(functionName)
+		if err == nil {
+			f.Cache.Set(functionName, queryResponse)
+		}
+		totalTime := time.Since(start)
+
+		if err != nil {
+			return err
+		}
+
+		if queryResponse.Replicas >= realtimeReplicas {
+
+			log.Printf("[Scale] function=%s 0 => %d successful - %f seconds",
+				functionName, queryResponse.Replicas, totalTime.Seconds())
+
+			return nil
+		}
+
+		time.Sleep(f.Config.FunctionPollInterval)
+	}
+	return nil
 
 }
 
-func Scale(function )
+/* Given a function name and return the following:
+   - realtime (guaranteed invocation per second)
+   - size (number of cpu per invocation
+   - duration (maximum runtime)
+   - availReplicas (number of available replicas
+   - error */
+func (rm ResourceManager) DeploymentRealtimeParams(
+	functionName string) (float64, float64, uint64, uint64, error) {
 
+	f := scaling.GetScalerInstance()
+	scaleInfo, err := f.Config.ServiceQuery.GetReplicas(functionName)
 
+	if err != nil {
+		return 0, 0, 0, 60, err
+	}
+
+	f.Cache.Set(functionName, scaleInfo)
+
+	return scaleInfo.Realtime, scaleInfo.FunctionSize, scaleInfo.Duration, scaleInfo.Replicas, nil
+}
+
+/* Check if available replicas meet expect ones */
+func (rm ResourceManager) GetAvailReplicas(functionName string) (uint64, error) {
+	f := scaling.GetScalerInstance()
+	queryResponse, err := f.Config.ServiceQuery.GetReplicas(functionName)
+	if err != nil {
+		return 0, err
+	}
+	return queryResponse.AvailableReplicas, nil
+}
+
+/* Wait until a given function has sufficient replicas or timeout determined by retry*interval */
+func (rm ResourceManager) WaitForAvailReplicas(
+	functionName string,
+	expectedReplicas uint64,
+	retry uint64,
+	interval int) bool {
+	prevAvail := uint64(0)
+	attempt := uint64(0)
+	for retry > attempt {
+		availReplicas, err := rm.GetAvailReplicas(functionName)
+		log.Printf("Attempt #%d, avail: %d, need: %d", attempt, availReplicas, expectedReplicas)
+		if err == nil {
+			if availReplicas == expectedReplicas {
+				return true
+			}
+			if availReplicas > prevAvail {
+				attempt = 0
+			}
+		}
+		attempt++
+		prevAvail = availReplicas
+		time.Sleep(time.Duration(interval) * time.Millisecond)
+	}
+	return false
+}
+
+//func forwardRequest(w http.ResponseWriter, r *http.Request, proxyClient *http.Client, baseURL string, requestURL string, timeout time.Duration, writeRequestURI bool) (int, error) {
 func forwardRequest(
-    r *http.Request,
-    proxyClient *http.Client,
-    baseURL string,
-    requestURL string,
-    timeout time.Duration,
-    writeRequestURI bool) (*http.Response, error) {
+	r *http.Request,
+	proxyClient *http.Client,
+	baseURL string,
+	requestURL string,
+	timeout time.Duration,
+	writeRequestURI bool) (*http.Response, error) {
 
 	upstreamReq := buildUpstreamRequest(r, baseURL, requestURL)
 	if upstreamReq.Body != nil {
@@ -44,29 +272,6 @@ func forwardRequest(
 
 	res, resErr := proxyClient.Do(upstreamReq.WithContext(ctx))
 
-	/*
-		if resErr != nil {
-				badStatus := http.StatusBadGateway
-				w.WriteHeader(badStatus)
-				return badStatus, resErr
-			return res, resErr
-		}
-
-		if res.Body != nil {
-			defer res.Body.Close()
-		}
-			copyHeaders(w.Header(), &res.Header)
-
-			// Write status code
-			w.WriteHeader(res.StatusCode)
-
-			if res.Body != nil {
-				// Copy the body over
-				io.CopyBuffer(w, res.Body, nil)
-			}
-
-			return res.StatusCode, nil
-	*/
 	if res.Body != nil {
 		defer res.Body.Close()
 	}
@@ -152,5 +357,36 @@ func backoff(r routine, attempts int, interval time.Duration) error {
 	return err
 }
 
+// extractLabelValue will parse the provided raw label value and if it fails
+// it will return the provided fallback value and log an message
+func extractLabelValue(rawLabelValue string, fallback uint64) uint64 {
+	if len(rawLabelValue) <= 0 {
+		return fallback
+	}
 
+	value, err := strconv.Atoi(rawLabelValue)
 
+	if err != nil {
+		log.Printf("Provided label value %s should be of type uint", rawLabelValue)
+		return fallback
+	}
+
+	return uint64(value)
+}
+
+// extractLabelValue will parse the provided raw label value and if it fails
+// it will return the provided fallback value and log an message
+func extractLabelRealValue(rawLabelValue string, fallback float64) float64 {
+	if len(rawLabelValue) <= 0 {
+		return fallback
+	}
+
+	value, err := strconv.ParseFloat(rawLabelValue, 64)
+
+	if err != nil {
+		log.Printf("Provided label value %s should be of type float", rawLabelValue)
+		return fallback
+	}
+
+	return float64(value)
+}

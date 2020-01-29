@@ -4,7 +4,8 @@
 package scaling
 
 import (
-	"container/list"
+	//"container/list"
+	"time"
 )
 
 // ServiceQuery provides interface for replica querying/setting
@@ -23,5 +24,6 @@ type ServiceQueryResponse struct {
 	Realtime          float64
 	FunctionSize      float64
 	Duration          uint64
-	PastAllocations   list.List
+	//PastAllocations   list.List
+	PastAllocation time.Time
 }

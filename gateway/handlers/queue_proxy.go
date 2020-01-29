@@ -54,30 +54,31 @@ func MakeQueuedProxy(metrics metrics.MetricOptions, wildcard bool, canQueueReque
 		scaler := scaling.GetScalerInstance()
 		invokeTime := time.Now()
 		added := false
-		_, hit := scaler.Cache.Get(name)
+		scaleInfo, hit := scaler.Cache.Get(name)
 		if !hit {
-			scaleInfo, err := scaler.Config.ServiceQuery.GetReplicas(name)
+			scaleInfo, err = scaler.Config.ServiceQuery.GetReplicas(name)
 			if err == nil {
 				scaler.Cache.Set(name, scaleInfo)
 			} else {
 				w.WriteHeader(http.StatusBadRequest)
 				w.Write([]byte(err.Error()))
-				fmt.Println(err)
+				fmt.Printf("Cannot invoke function %s: %s\n", name, err.Error())
 				return
 			}
 
-			limit := scaleInfo.Realtime
-			if limit == 0.0 {
-				// Best effort invocation when no guarantee is enforced
-				added = true
-			} else {
-				_, _, added = scaler.Cache.UpdateInvocation(name, invokeTime)
-			}
+		}
+		limit := scaleInfo.Realtime
+		if limit == 0.0 {
+			// Best effort invocation when no guarantee is enforced
+			added = true
+		} else {
+			_, _, added = scaler.Cache.UpdateInvocation(name, invokeTime)
 		}
 
 		if !added {
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte("Too many requests"))
+			fmt.Printf("Cannot invoke function %s: Too many requests\n", name)
 			return
 		}
 

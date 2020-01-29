@@ -101,13 +101,16 @@ func main() {
 	}
 	scaling.SetupRealtime(realtimeHandleConfig)
 
+	ac := realtime.ReserveAdmissionControl{}
+
 	faasHandlers.RoutelessProxy = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
 	faasHandlers.ListFunctions = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
-	faasHandlers.DeployFunction = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
-	//faasHandlers.DeployFunction = realtime.MakeRealtimeDeployHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
-	faasHandlers.DeleteFunction = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
-	faasHandlers.UpdateFunction = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
-	//faasHandlers.UpdateFunction = realtime.MakeRealtimeUpdateHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
+	//faasHandlers.DeployFunction = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
+	faasHandlers.DeployFunction = realtime.MakeRealtimeDeployHandler(ac, reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
+	//faasHandlers.DeleteFunction = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
+	faasHandlers.DeleteFunction = realtime.MakeRealtimeDeleteHandler(ac, reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
+	//faasHandlers.UpdateFunction = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
+	faasHandlers.UpdateFunction = realtime.MakeRealtimeUpdateHandler(ac, reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
 	faasHandlers.QueryFunction = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)
 	faasHandlers.InfoHandler = handlers.MakeInfoHandler(handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer))
 	faasHandlers.SecretHandler = handlers.MakeForwardingProxyHandler(reverseProxy, forwardingNotifiers, urlResolver, nilURLTransformer)

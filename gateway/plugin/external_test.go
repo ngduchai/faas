@@ -99,8 +99,9 @@ func TestGetReplicasExistentFn(t *testing.T) {
 		svcQryResp.ScalingFactor != expectedSvcQryResp.ScalingFactor ||
 		svcQryResp.AvailableReplicas != expectedSvcQryResp.AvailableReplicas ||
 		svcQryResp.Realtime != expectedSvcQryResp.Realtime ||
-		svcQryResp.Duration != expectedSvcQryResp.Duration ||
-		svcQryResp.PastAllocations.Len() != 0 {
+		//svcQryResp.Duration != expectedSvcQryResp.Duration ||
+		svcQryResp.Duration != expectedSvcQryResp.Duration {
+		//svcQryResp.PastAllocations.Len() != 0 {
 
 		t.Logf("Unexpected return values - wanted %+v, got: %+v ", expectedSvcQryResp, svcQryResp)
 		t.Fail()

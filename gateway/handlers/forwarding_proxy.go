@@ -39,7 +39,11 @@ type URLPathTransformer interface {
 }
 
 // MakeForwardingProxyHandler create a handler which forwards HTTP requests
-func MakeForwardingProxyHandler(proxy *types.HTTPClientReverseProxy, notifiers []HTTPNotifier, baseURLResolver BaseURLResolver, urlPathTransformer URLPathTransformer) http.HandlerFunc {
+func MakeForwardingProxyHandler(
+	proxy *types.HTTPClientReverseProxy,
+	notifiers []HTTPNotifier,
+	baseURLResolver BaseURLResolver,
+	urlPathTransformer URLPathTransformer) http.HandlerFunc {
 
 	writeRequestURI := false
 	if _, exists := os.LookupEnv("write_request_uri"); exists {
