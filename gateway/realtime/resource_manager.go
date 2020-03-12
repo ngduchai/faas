@@ -80,12 +80,12 @@ func processRequest(
 
 }
 
-// Return realtime, functionsize (= cpus), and duration
-func (rm ResourceManager) RequestRealtimeParams(req *http.Request) (string, float64, float64, uint64, error) {
+// Return realtime, functionsize (= function/replicas), and duration
+func (rm ResourceManager) RequestRealtimeParams(req *http.Request) (string, float64, uint64, uint64, error) {
 	body, err := ioutil.ReadAll(req.Body)
 	if err != nil {
 		log.Printf("Cannot read parameters: %s\n", err.Error())
-		return "", 0.0, 1.0, 60, err
+		return "", 0.0, 10, 60, err
 	}
 	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
 	request := requests.CreateFunctionRequest{}
@@ -102,7 +102,7 @@ func (rm ResourceManager) RequestRealtimeParams(req *http.Request) (string, floa
 	}
 	functionName := request.Service
 	realtime := extractLabelRealValue((*request.Labels)["realtime"], float64(0))
-	size := extractLabelRealValue((*request.Labels)["functionsize"], float64(1.0))
+	size := extractLabelValue((*request.Labels)["functionsize"], uint64(256))
 	duration := extractLabelValue((*request.Labels)["duration"], uint64(60))
 	return functionName, realtime, size, duration, nil
 }
@@ -111,7 +111,7 @@ func (rm ResourceManager) RequestRealtimeParams(req *http.Request) (string, floa
 func (rm ResourceManager) SetRealtimeParams(
 	req *http.Request,
 	realtime float64,
-	size float64,
+	size uint64,
 	duration uint64) error {
 
 	body, _ := ioutil.ReadAll(req.Body)
@@ -199,7 +199,7 @@ func (rm ResourceManager) Scale(functionName string, realtimeReplicas uint64) er
    - availReplicas (number of available replicas
    - error */
 func (rm ResourceManager) DeploymentRealtimeParams(
-	functionName string) (float64, float64, uint64, uint64, error) {
+	functionName string) (float64, uint64, uint64, uint64, error) {
 
 	f := scaling.GetScalerInstance()
 	scaleInfo, err := f.Config.ServiceQuery.GetReplicas(functionName)

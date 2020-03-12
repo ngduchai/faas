@@ -131,7 +131,7 @@ func MakeRealtimeInvokeHandler(next http.HandlerFunc) http.HandlerFunc {
 		if added {
 			scaler.BypassMap.Delete(callid)
 		}
-		numTries := 0
+		numTries := 0 // No retry, if the rate limit is reached, just reject the execution
 		retryLimit := 1
 		for !added && numTries < retryLimit {
 
@@ -153,19 +153,11 @@ func MakeRealtimeInvokeHandler(next http.HandlerFunc) http.HandlerFunc {
 				added = true
 				break
 			}
-			//total := limit
-			//total := uint64(0)
-			//total, gap, added := scaler.Cache.UpdateInvocation(functionName, invokeTime)
-			//total, _, added = scaler.Cache.UpdateInvocation(functionName, invokeTime)
 			_, _, added = scaler.Cache.UpdateInvocation(functionName, invokeTime)
 
 			if !added {
-				//wait := 1.0 - gap.Seconds() + 0.001
-				//wait := 1.0
-				//wait := 1 / scaleInfo.Realtime // --> try to spread out the requests
 				wait := 1 / (100 * scaleInfo.Realtime) // --> try to spread out the requests
 				numTries++
-				//log.Printf("[Invoke %d] Number of requests = %d >= limit = %f for function %s. Pause invocation by %f second(s)", numTries, total, limit, functionName, wait)
 				time.Sleep(time.Duration(wait*1000) * time.Millisecond)
 			}
 		}
@@ -176,4 +168,32 @@ func MakeRealtimeInvokeHandler(next http.HandlerFunc) http.HandlerFunc {
 			next(w, r)
 		}
 	}
+}
+
+func parseCreateFunctionRequest(r *http.Request, request *requests.CreateFunctionRequest) error {
+	body, err := ioutil.ReadAll(req.Body)
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(body, &request)
+	if err != nil {
+		return err
+	}
+	if request.Labels == nil {
+		request.Labels = *map[string]string{}
+	}
+	if request.Labels["realtime"] == nil {
+		// No realtime <=> realtime == 0 <=> this is not a RTS function
+		request.Labels["realtime"] = "0"
+	}
+	if request.Labels["memory"] == nil {
+		// By default, a function has 128MB
+		request.Labels["memory"] = "128"
+	}
+	if request.Labels["timeout"] == nil {
+		// By default, function timeout is 60 seconds
+		request.Labels["timeout"] = "60"
+	}
+	// Forcing this timeout to watchdog
+
 }
