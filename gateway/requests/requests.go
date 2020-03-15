@@ -52,6 +52,15 @@ type CreateFunctionRequest struct {
 	// ReadOnlyRootFilesystem removes write-access from the root filesystem
 	// mount-point.
 	ReadOnlyRootFilesystem bool `json:"readOnlyRootFilesystem"`
+
+	// Guarantee invocation rate
+	Realtime float64 `json:"realtime"`
+
+	// Function size
+	Resources *FunctionResources `json:"resources"`
+
+	// Function duration in second
+	Timeout uint64 `json:"timeout"`
 }
 
 // FunctionResources Memory and CPU

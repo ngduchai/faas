@@ -22,4 +22,7 @@ type ScalingConfig struct {
 	// SetScaleRetries is the number of times to try scaling a function before
 	// giving up due to errors
 	SetScaleRetries uint
+
+	// Number of functions can be multiplex into one container
+	ContainerConcurrency uint
 }

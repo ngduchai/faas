@@ -10,13 +10,13 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/ngduchai/faas/gateway/handlers"
+	"github.com/ngduchai/faas/gateway/metrics"
+	"github.com/ngduchai/faas/gateway/plugin"
+	"github.com/ngduchai/faas/gateway/realtime"
+	"github.com/ngduchai/faas/gateway/scaling"
+	"github.com/ngduchai/faas/gateway/types"
 	"github.com/openfaas/faas-provider/auth"
-	"github.com/openfaas/faas/gateway/handlers"
-	"github.com/openfaas/faas/gateway/metrics"
-	"github.com/openfaas/faas/gateway/plugin"
-	"github.com/openfaas/faas/gateway/realtime"
-	"github.com/openfaas/faas/gateway/scaling"
-	"github.com/openfaas/faas/gateway/types"
 	natsHandler "github.com/openfaas/nats-queue-worker/handler"
 )
 
@@ -29,7 +29,7 @@ func main() {
 	//config.ReadTimeout = 10 * time.Minute
 	//config.WriteTimeout = 10 * time.Minute
 
-	log.Printf("Start RTS Gateway")
+	log.Printf("Start RTS Gateway - with Step Function suppport")
 	log.Printf("HTTP Read Timeout: %s", config.ReadTimeout)
 	log.Printf("HTTP Write Timeout: %s", config.WriteTimeout)
 
@@ -93,11 +93,12 @@ func main() {
 
 	alertHandler := plugin.NewExternalServiceQuery(*config.FunctionsProviderURL, credentials)
 	realtimeHandleConfig := scaling.ScalingConfig{
-		MaxPollCount:         uint(1000),
-		SetScaleRetries:      uint(20),
-		FunctionPollInterval: time.Millisecond * 50,
-		CacheExpiry:          time.Second * 5,
-		ServiceQuery:         alertHandler,
+		MaxPollCount:          uint(1000),
+		SetScaleRetries:       uint(20),
+		FunctionPollInterval:  time.Millisecond * 50,
+		CacheExpiry:           time.Second * 5,
+		ServiceQuery:          alertHandler,
+		ContainerConcurrentcy: 100,
 	}
 	scaling.SetupRealtime(realtimeHandleConfig)
 
