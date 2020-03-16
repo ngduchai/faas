@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/openfaas/faas/gateway/requests"
+	"github.com/ngduchai/faas/gateway/requests"
 )
 
 // AddMetricsHandler wraps a http.HandlerFunc with Prometheus metrics

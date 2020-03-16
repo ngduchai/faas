@@ -14,8 +14,8 @@ import (
 
 	"log"
 
+	"github.com/ngduchai/faas/gateway/requests"
 	"github.com/openfaas/faas-provider/auth"
-	"github.com/openfaas/faas/gateway/requests"
 	"github.com/prometheus/client_golang/prometheus"
 )
 

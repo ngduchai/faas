@@ -8,7 +8,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/openfaas/faas/gateway/scaling"
+	"github.com/ngduchai/faas/gateway/scaling"
 )
 
 // MakeScalingHandler creates handler which can scale a function from

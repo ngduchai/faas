@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openfaas/faas/gateway/types"
+	"github.com/ngduchai/faas/gateway/types"
 )
 
 // functionMatcher parses out the service name (group 1) and rest of path (group 2).

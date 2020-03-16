@@ -15,9 +15,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ngduchai/faas/gateway/requests"
+	"github.com/ngduchai/faas/gateway/scaling"
 	"github.com/openfaas/faas-provider/auth"
-	"github.com/openfaas/faas/gateway/requests"
-	"github.com/openfaas/faas/gateway/scaling"
 )
 
 // NewExternalServiceQuery proxies service queries to external plugin via HTTP
@@ -102,7 +102,7 @@ func (s ExternalServiceQuery) GetReplicas(serviceName string) (scaling.ServiceQu
 	scalingFactor := uint64(scaling.DefaultScalingFactor)
 	availableReplicas := function.AvailableReplicas
 	realTime := float64(0)
-        functionSize := float64(1)
+	functionSize := float64(1)
 	duration := uint64(60)
 
 	if function.Labels != nil {
@@ -132,7 +132,7 @@ func (s ExternalServiceQuery) GetReplicas(serviceName string) (scaling.ServiceQu
 		ScalingFactor:     scalingFactor,
 		AvailableReplicas: availableReplicas,
 		Realtime:          realTime,
-                FunctionSize:      functionSize,
+		FunctionSize:      functionSize,
 		Duration:          duration,
 	}, err
 }

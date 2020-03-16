@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/openfaas/faas/gateway/metrics"
-	"github.com/openfaas/faas/gateway/queue"
-	"github.com/openfaas/faas/gateway/scaling"
+	"github.com/ngduchai/faas/gateway/metrics"
+	"github.com/ngduchai/faas/gateway/queue"
+	"github.com/ngduchai/faas/gateway/scaling"
 )
 
 // MakeQueuedProxy accepts work onto a queue

@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/openfaas/faas/gateway/plugin"
-	"github.com/openfaas/faas/gateway/requests"
-	"github.com/openfaas/faas/gateway/scaling"
+	"github.com/ngduchai/faas/gateway/plugin"
+	"github.com/ngduchai/faas/gateway/requests"
+	"github.com/ngduchai/faas/gateway/scaling"
 )
 
 func Test_RequestRealtimeParams_with_realtime(t *testing.T) {

@@ -1,15 +1,18 @@
 package realtime
 
 import (
+	"encoding/json"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/openfaas/faas/gateway/handlers"
-	"github.com/openfaas/faas/gateway/scaling"
-	"github.com/openfaas/faas/gateway/types"
+	"github.com/ngduchai/faas/gateway/handlers"
+	"github.com/ngduchai/faas/gateway/requests"
+	"github.com/ngduchai/faas/gateway/scaling"
+	"github.com/ngduchai/faas/gateway/types"
 )
 
 // Forward the deploy request to the backend.

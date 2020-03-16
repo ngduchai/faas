@@ -7,7 +7,7 @@ ARG VERSION='dev'
 #  https://raw.githubusercontent.com/teamserverless/license-check/master/get.sh | sh \
 #  && mv ./license-check /usr/bin/
 
-WORKDIR /go/src/github.com/openfaas/faas/gateway
+WORKDIR /go/src/github.com/ngduchai/faas/gateway
 
 COPY vendor         vendor
 
@@ -40,9 +40,9 @@ COPY server.go      .
 #    && go test $(go list ./... | grep -v integration | grep -v /vendor/ | grep -v /template/) -cover \
 RUN go test $(go list ./... | grep -v integration | grep -v /vendor/ | grep -v /template/) -cover \
     && CGO_ENABLED=0 GOOS=linux go build --ldflags "-s -w \
-    -X github.com/openfaas/faas/gateway/version.GitCommitSHA=${GIT_COMMIT_SHA}\
-    -X \"github.com/openfaas/faas/gateway/version.GitCommitMessage=${GIT_COMMIT_MESSAGE}\"\
-    -X github.com/openfaas/faas/gateway/version.Version=${VERSION}" \
+    -X github.com/ngduchai/faas/gateway/version.GitCommitSHA=${GIT_COMMIT_SHA}\
+    -X \"github.com/ngduchai/faas/gateway/version.GitCommitMessage=${GIT_COMMIT_MESSAGE}\"\
+    -X github.com/ngduchai/faas/gateway/version.Version=${VERSION}" \
     -a -installsuffix cgo -o gateway .
 
 
@@ -66,7 +66,7 @@ EXPOSE 8082
 ENV http_proxy      ""
 ENV https_proxy     ""
 
-COPY --from=build /go/src/github.com/openfaas/faas/gateway/gateway    .
+COPY --from=build /go/src/github.com/ngduchai/faas/gateway/gateway    .
 COPY assets     assets
 
 RUN chown -R app:app ./

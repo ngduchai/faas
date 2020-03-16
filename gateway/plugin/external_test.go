@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ngduchai/faas/gateway/scaling"
 	"github.com/openfaas/faas-provider/auth"
-	"github.com/openfaas/faas/gateway/scaling"
 )
 
 const fallbackValue = 120

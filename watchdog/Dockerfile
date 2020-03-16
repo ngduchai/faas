@@ -3,8 +3,8 @@ FROM golang:1.10 as build
 ARG VERSION
 ARG GIT_COMMIT
 
-RUN mkdir -p /go/src/github.com/openfaas/faas/watchdog
-WORKDIR /go/src/github.com/openfaas/faas/watchdog
+RUN mkdir -p /go/src/github.com/ngduchai/faas/watchdog
+WORKDIR /go/src/github.com/ngduchai/faas/watchdog
 
 COPY vendor                     vendor
 COPY metrics                    metrics

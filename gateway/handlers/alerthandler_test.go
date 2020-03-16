@@ -6,7 +6,7 @@ package handlers
 import (
 	"testing"
 
-	"github.com/openfaas/faas/gateway/scaling"
+	"github.com/ngduchai/faas/gateway/scaling"
 )
 
 func TestDisabledScale(t *testing.T) {
