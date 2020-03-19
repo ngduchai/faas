@@ -99,7 +99,7 @@ func (rm ResourceManager) convertRequest(r *http.Request) error {
 		req.Labels = &map[string]string{}
 	}
 	(*req.Labels)["realtime"] = strconv.FormatFloat(req.Realtime, 'f', -1, 64)
-	(*req.Labels)["concurrency"] = strconv.FormatInt(int64(concurrency), 32)
+	(*req.Labels)["concurrency"] = strconv.FormatInt(int64(concurrency), 10)
 	(*req.Labels)["timeout"] = timeout
 
 	req.EnvVars["exec_timeout"] = timeout
