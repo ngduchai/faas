@@ -9,9 +9,13 @@ import (
 	"time"
 )
 
+// ReserveAdmissionControl implements the AdmissionControl by reserving
+// resources at function deployment
 type ReserveAdmissionControl struct {
 }
 
+// Register registers a function, after the call, the function should
+// be ready for invocation requests
 func (ac ReserveAdmissionControl) Register(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -25,38 +29,48 @@ func (ac ReserveAdmissionControl) Register(
 	rm := ResourceManager{}
 
 	// Get realtime params
-	functionName, realtime, size, duration, error := rm.RequestRealtimeParams(r)
-	if error != nil {
+	req, err := rm.ParseCreateFunctionRequest(r)
+	if err != nil {
 		statusCode := http.StatusNotFound
 		w.WriteHeader(statusCode)
-		error = errors.New("Function parametera are invalid")
-		return statusCode, error
+		w.Write([]byte(err.Error()))
+		err = errors.New("Function parameters are invalid")
+		return statusCode, err
 	}
-	numReplicas := uint64(math.Ceil(realtime * size * float64(duration)))
+	concurrency, err := rm.ContainerConcurrency(&req)
+	if err != nil {
+		statusCode := http.StatusNotFound
+		w.WriteHeader(statusCode)
+		w.Write([]byte(err.Error()))
+		return statusCode, err
+	}
+	numReplicas := uint64(math.Ceil(req.Realtime / float64(concurrency) * float64(req.Timeout)))
 	if numReplicas < 1 {
 		numReplicas = 1
 	}
 
 	// Create function image
-	res, error := rm.CreateImage(r, proxyClient, baseURL, requestURL, timeout, writeRequestURI)
-	if error != nil {
+	res, err := rm.CreateImage(r, proxyClient, baseURL, requestURL, timeout, writeRequestURI)
+	if err != nil {
 		if res.Body != nil {
 			io.CopyBuffer(w, res.Body, nil)
 		}
 		copyHeaders(w.Header(), &res.Header)
 		w.WriteHeader(res.StatusCode)
-		return res.StatusCode, error
+		w.Write([]byte(err.Error()))
+		return res.StatusCode, err
 	}
 
 	statusCode := http.StatusAccepted
+	functionName := req.Service
 	// The function is deployed successfully, now we need to scale to enforce the
 	// guaranteed invocation rate
-	if realtime > 0 {
+	if req.Realtime > 0 {
 		canScale := false
 		// Scale!
 		log.Printf("Scale function %s to %d\n", functionName, numReplicas)
-		error = rm.Scale(functionName, numReplicas)
-		if error == nil {
+		err = rm.Scale(functionName, numReplicas)
+		if err == nil {
 			retries := numReplicas * 2
 			if retries < 10 {
 				retries = 10
@@ -72,16 +86,17 @@ func (ac ReserveAdmissionControl) Register(
 				log.Printf("Unable to rollback function %s deployment", functionName)
 			}
 			statusCode = http.StatusInternalServerError
-			error = errors.New("Insuffcient resources. Cancel deployment!\n")
+			error = errors.New("insuffcient resources, cancel deployment")
 		}
 	}
 	w.WriteHeader(statusCode)
-	if error != nil {
-		w.Write([]byte(error.Error()))
+	if err != nil {
+		w.Write([]byte(err.Error()))
 	}
-	return statusCode, error
+	return statusCode, err
 }
 
+// Update modifies a registered function
 func (ac ReserveAdmissionControl) Update(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -95,20 +110,27 @@ func (ac ReserveAdmissionControl) Update(
 	rm := ResourceManager{}
 
 	// First, extract real-time parameters from the request
-	functionName, realtime, size, duration, error := rm.RequestRealtimeParams(r)
-	if error != nil {
+	req, err := rm.ParseCreateFunctionRequest(r)
+	if err != nil {
 		statusCode := http.StatusNotFound
 		w.WriteHeader(statusCode)
-		error = errors.New("Function parametera are invalid")
-		return statusCode, error
+		err = errors.New("Function parametera are invalid")
+		return statusCode, err
 	}
-	numReplicas := uint64(math.Ceil(realtime * size * float64(duration)))
+	concurrency, err := rm.ContainerConcurrency(&req)
+	if err != nil {
+		statusCode := http.StatusNotFound
+		w.WriteHeader(statusCode)
+		return statusCode, err
+	}
+	numReplicas := uint64(math.Ceil(req.Realtime / float64(concurrency) * float64(req.Timeout)))
 	if numReplicas < 1 {
 		numReplicas = 1
 	}
 
+	functionName := req.Service
 	// Capture the current real-time parameter if backoff is needed
-	prevRealtime, prevSize, prevDuration, prevReplicas, error := rm.DeploymentRealtimeParams(functionName)
+	prevRealtime, _, _, prevReplicas, error := rm.GetRealtimeParams(functionName)
 	if error != nil {
 		statusCode := http.StatusNotFound
 		w.WriteHeader(statusCode)
@@ -126,12 +148,12 @@ func (ac ReserveAdmissionControl) Update(
 		return res.StatusCode, error
 	}
 	statusCode := http.StatusAccepted
-	if prevRealtime > 0 || realtime > 0 {
+	if prevRealtime > 0 || req.Realtime > 0 {
 		// Scale!
 		canScale := false
 		error = rm.Scale(functionName, numReplicas)
 		if error == nil {
-			if prevRealtime < realtime {
+			if prevRealtime < req.Realtime {
 				// Only wait for scale up
 				retries := numReplicas * 2
 				if retries < 10 {
@@ -147,25 +169,26 @@ func (ac ReserveAdmissionControl) Update(
 		// Check if we can scale successfully
 		if !canScale {
 			// Set back the real time parameter
-			error = rm.SetRealtimeParams(r, prevRealtime, prevSize, prevDuration)
-			if error != nil {
-				log.Printf("Unable set back real-time params: %s", error.Error())
-			}
-			// If we fail to scale the function, then rollback the deployment
-			_, error := rm.UpdateImage(r, proxyClient, baseURL, requestURL, timeout, writeRequestURI)
-			if error != nil {
-				log.Printf("Unable to rollback function %s update", functionName)
-			}
-			error = rm.Scale(functionName, prevReplicas)
-			if error != nil {
-				log.Printf("Unable to rollback function %s scale", functionName)
-			}
-			canScale = rm.WaitForAvailReplicas(functionName, numReplicas, numReplicas*2, 1)
-			if !canScale {
-				log.Printf("Unable to scale back after update %s", functionName)
+			req.Realtime = prevRealtime
+			// Then rollback realtime guarantee
+			if err = rm.DumpCreateFunctionRequest(r, &req); err != nil {
+				log.Printf("Unable set back real-time params: %s", err.Error())
+			} else {
+				if _, err := rm.UpdateImage(r, proxyClient, baseURL, requestURL, timeout, writeRequestURI); err != nil {
+					log.Printf("Unable to rollback function %s update", functionName)
+				} else {
+					if err = rm.Scale(functionName, prevReplicas); err != nil {
+						log.Printf("Unable to rollback function %s scale", functionName)
+					} else {
+						if !rm.WaitForAvailReplicas(functionName, numReplicas, numReplicas*2, 1) {
+							log.Printf("Unable to scale back after update %s", functionName)
+						}
+					}
+
+				}
 			}
 			statusCode = http.StatusInternalServerError
-			error = errors.New("Insuffcient resources. Cancel update the function!\n")
+			err = errors.New("insuffcient resources, cancel update the function")
 		}
 	}
 	w.WriteHeader(statusCode)
@@ -176,6 +199,7 @@ func (ac ReserveAdmissionControl) Update(
 
 }
 
+// Unregister removes a deployed function
 func (ac ReserveAdmissionControl) Unregister(
 	w http.ResponseWriter,
 	r *http.Request,

@@ -22,8 +22,8 @@ type ServiceQueryResponse struct {
 	ScalingFactor     uint64
 	AvailableReplicas uint64
 	Realtime          float64
-	FunctionSize      float64
-	Duration          uint64
+	Concurrency       uint64
+	Timeout           uint64
 	//PastAllocations   list.List
 	PastAllocation time.Time
 }

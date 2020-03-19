@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -13,10 +14,14 @@ import (
 
 	"github.com/ngduchai/faas/gateway/requests"
 	"github.com/ngduchai/faas/gateway/scaling"
+	"golang.org/x/build/kubernetes/api"
 )
 
+// ResourceManager used by AdmissionControl policies for handling low
+// level communication with the underlying container managager.
 type ResourceManager struct{}
 
+// CreateImage create a container image for function deployment
 func (rm ResourceManager) CreateImage(
 	r *http.Request,
 	proxyClient *http.Client,
@@ -25,6 +30,10 @@ func (rm ResourceManager) CreateImage(
 	timeout time.Duration,
 	writeRequestURI bool) (*http.Response, error) {
 
+	if err := rm.convertRequest(r); err != nil {
+		return nil, err
+	}
+
 	method := r.Method
 	r.Method = http.MethodPost
 	res, err := processRequest(r, proxyClient, baseURL, requestURL, timeout, writeRequestURI)
@@ -32,6 +41,8 @@ func (rm ResourceManager) CreateImage(
 	return res, err
 }
 
+// RemoveImage remove function decription and image from container
+// manager, used to support unregistration operation.
 func (rm ResourceManager) RemoveImage(
 	r *http.Request,
 	proxyClient *http.Client,
@@ -47,6 +58,8 @@ func (rm ResourceManager) RemoveImage(
 	return res, err
 }
 
+// UpdateImage modifies an already existed image in the underlying
+// container manager
 func (rm ResourceManager) UpdateImage(
 	r *http.Request,
 	proxyClient *http.Client,
@@ -55,11 +68,45 @@ func (rm ResourceManager) UpdateImage(
 	timeout time.Duration,
 	writeRequestURI bool) (*http.Response, error) {
 
+	if err := rm.convertRequest(r); err != nil {
+		return nil, err
+	}
+
 	method := r.Method
 	r.Method = http.MethodPut
 	res, err := processRequest(r, proxyClient, baseURL, requestURL, timeout, writeRequestURI)
 	r.Method = method
 	return res, err
+}
+
+// convert request to the form that the unverlying container can
+// understand
+func (rm ResourceManager) convertRequest(r *http.Request) error {
+	// Extract raw request from HTTP body
+	req, err := rm.ParseCreateFunctionRequest(r)
+	if err != nil {
+		return err
+	}
+	if req.Timeout == 0 {
+		req.Timeout = 3 // Similar to current AWS
+	}
+	timeout := strconv.FormatUint(req.Timeout, 10)
+	concurrency, err := rm.ContainerConcurrency(&req)
+	if err != nil {
+		return err
+	}
+	if req.Labels == nil {
+		req.Labels = &map[string]string{}
+	}
+	(*req.Labels)["realtime"] = strconv.FormatFloat(req.Realtime, 'f', -1, 64)
+	(*req.Labels)["concurrency"] = strconv.FormatInt(int64(concurrency), 32)
+	(*req.Labels)["timeout"] = timeout
+
+	req.EnvVars["exec_timeout"] = timeout
+	req.EnvVars["read_timeout"] = timeout
+	req.EnvVars["write_timeout"] = timeout
+
+	return rm.DumpCreateFunctionRequest(r, &req)
 }
 
 func processRequest(
@@ -80,57 +127,36 @@ func processRequest(
 
 }
 
-// Return realtime, functionsize (= function/replicas), and duration
-func (rm ResourceManager) RequestRealtimeParams(req *http.Request) (string, float64, uint64, uint64, error) {
+// ParseCreateFunctionRequest parse HTTP request for function update
+// or deployment from a readable json format to a concrete
+// CreateFunctionRequest object
+func (rm ResourceManager) ParseCreateFunctionRequest(req *http.Request) (requests.CreateFunctionRequest, error) {
+	request := requests.CreateFunctionRequest{}
+
+	// Extract raw request from HTTP body
 	body, err := ioutil.ReadAll(req.Body)
 	if err != nil {
 		log.Printf("Cannot read parameters: %s\n", err.Error())
-		return "", 0.0, 10, 60, err
+		return request, err
 	}
+	// Parse the request but still make sure the request is still readable
 	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
-	request := requests.CreateFunctionRequest{}
 	err = json.Unmarshal(body, &request)
 	req.Body = rdr
 	if err != nil {
 		log.Printf("Cannot read JSON params: %s", err.Error())
-		return "", 0.0, 1.0, 60, err
+		return request, err
 	}
-
-	if request.Labels == nil {
-		// Return default value
-		return request.Service, 0.0, 1.0, 60, nil
-	}
-	functionName := request.Service
-	realtime := extractLabelRealValue((*request.Labels)["realtime"], float64(0))
-	size := extractLabelValue((*request.Labels)["functionsize"], uint64(256))
-	duration := extractLabelValue((*request.Labels)["duration"], uint64(60))
-	return functionName, realtime, size, duration, nil
+	return request, nil
 }
 
-// Return realtime, functionsize (= cpus), and duration
-func (rm ResourceManager) SetRealtimeParams(
+// DumpCreateFunctionRequest dumps function description as a
+// CreateFunctionRequest object to HTTP body in json format.
+func (rm ResourceManager) DumpCreateFunctionRequest(
 	req *http.Request,
-	realtime float64,
-	size uint64,
-	duration uint64) error {
+	desc *requests.CreateFunctionRequest) error {
 
-	body, _ := ioutil.ReadAll(req.Body)
-	//rdr := ioutil.NopCloser(bytes.NewBuffer(body))
-	request := requests.CreateFunctionRequest{}
-	err := json.Unmarshal(body, &request)
-	//req.Body = rdr
-
-	if err != nil {
-		return err
-	}
-	if request.Labels == nil {
-		request.Labels = &map[string]string{}
-	}
-	(*request.Labels)["realtime"] = fmt.Sprint(realtime)
-	(*request.Labels)["functionsize"] = fmt.Sprint(size)
-	(*request.Labels)["duration"] = fmt.Sprint(duration)
-
-	body, err = json.Marshal(request)
+	body, err := json.Marshal(desc)
 	if err != nil {
 		return err
 	}
@@ -139,7 +165,7 @@ func (rm ResourceManager) SetRealtimeParams(
 	return nil
 }
 
-/* Scale a function by either increasing or decreasing its replicas */
+// Scale a function by either increasing or decreasing its replicas
 func (rm ResourceManager) Scale(functionName string, realtimeReplicas uint64) error {
 	f := scaling.GetScalerInstance()
 
@@ -192,13 +218,8 @@ func (rm ResourceManager) Scale(functionName string, realtimeReplicas uint64) er
 
 }
 
-/* Given a function name and return the following:
-   - realtime (guaranteed invocation per second)
-   - size (number of cpu per invocation
-   - duration (maximum runtime)
-   - availReplicas (number of available replicas
-   - error */
-func (rm ResourceManager) DeploymentRealtimeParams(
+// GetRealtimeParams returns real-time parameters of a function
+func (rm ResourceManager) GetRealtimeParams(
 	functionName string) (float64, uint64, uint64, uint64, error) {
 
 	f := scaling.GetScalerInstance()
@@ -210,10 +231,10 @@ func (rm ResourceManager) DeploymentRealtimeParams(
 
 	f.Cache.Set(functionName, scaleInfo)
 
-	return scaleInfo.Realtime, scaleInfo.FunctionSize, scaleInfo.Duration, scaleInfo.Replicas, nil
+	return scaleInfo.Realtime, scaleInfo.Concurrency, scaleInfo.Timeout, scaleInfo.Replicas, nil
 }
 
-/* Check if available replicas meet expect ones */
+// GetAvailReplicas gets available replicas of a function */
 func (rm ResourceManager) GetAvailReplicas(functionName string) (uint64, error) {
 	f := scaling.GetScalerInstance()
 	queryResponse, err := f.Config.ServiceQuery.GetReplicas(functionName)
@@ -223,7 +244,8 @@ func (rm ResourceManager) GetAvailReplicas(functionName string) (uint64, error) 
 	return queryResponse.AvailableReplicas, nil
 }
 
-/* Wait until a given function has sufficient replicas or timeout determined by retry*interval */
+// WaitForAvailReplicas waits until a given function has
+// sufficient replicas or timeout determined by retry*interval
 func (rm ResourceManager) WaitForAvailReplicas(
 	functionName string,
 	expectedReplicas uint64,
@@ -247,6 +269,56 @@ func (rm ResourceManager) WaitForAvailReplicas(
 		time.Sleep(time.Duration(interval) * time.Millisecond)
 	}
 	return false
+}
+
+// ContainerConcurrency returns the number of running functions can be
+// multiplexed into a single container.
+func (rm ResourceManager) ContainerConcurrency(req *requests.CreateFunctionRequest) (int, error) {
+	// In current implementation, we determine function and container
+	// size only the min of memory and cpu consumption
+
+	if req.Limits == nil {
+		mem := "512 Mi"
+		cpu := "1.0"
+		if req.Requests != nil {
+			if len(req.Requests.CPU) > 0 {
+				cpu = req.Requests.CPU
+			}
+			if len(req.Requests.Memory) > 0 {
+				mem = req.Requests.Memory
+			}
+		}
+		req.Limits = &requests.FunctionResources{
+			Memory: mem,
+			CPU:    cpu,
+		}
+	}
+	// Parse CPU limits
+	containerCPU, err := strconv.ParseFloat(req.Limits.CPU, 32)
+	funcCPU, err := strconv.ParseFloat(req.Resources.CPU, 32)
+	if err != nil {
+		return 0, err
+	}
+
+	// Parse Memory limits
+	containerMemory, err := api.ParseQuantity(req.Limits.Memory)
+	funcMemory, err := api.ParseQuantity(req.Resources.Memory)
+	if err != nil {
+		return 0, err
+	}
+
+	// Ensure that function size is not zero
+	if funcCPU == 0 || funcMemory.Value() == 0 {
+		return 0, errors.New("Function resources must be non-zero")
+	}
+	sizeCPU := int(containerCPU / funcCPU)
+	sizeMem := int(float64(containerMemory.Value()) / float64(funcMemory.Value()))
+	size := sizeCPU
+	if sizeCPU > sizeMem {
+		size = sizeMem
+	}
+	return size, nil
+
 }
 
 //func forwardRequest(w http.ResponseWriter, r *http.Request, proxyClient *http.Client, baseURL string, requestURL string, timeout time.Duration, writeRequestURI bool) (int, error) {
@@ -355,38 +427,4 @@ func backoff(r routine, attempts int, interval time.Duration) error {
 		time.Sleep(interval)
 	}
 	return err
-}
-
-// extractLabelValue will parse the provided raw label value and if it fails
-// it will return the provided fallback value and log an message
-func extractLabelValue(rawLabelValue string, fallback uint64) uint64 {
-	if len(rawLabelValue) <= 0 {
-		return fallback
-	}
-
-	value, err := strconv.Atoi(rawLabelValue)
-
-	if err != nil {
-		log.Printf("Provided label value %s should be of type uint", rawLabelValue)
-		return fallback
-	}
-
-	return uint64(value)
-}
-
-// extractLabelValue will parse the provided raw label value and if it fails
-// it will return the provided fallback value and log an message
-func extractLabelRealValue(rawLabelValue string, fallback float64) float64 {
-	if len(rawLabelValue) <= 0 {
-		return fallback
-	}
-
-	value, err := strconv.ParseFloat(rawLabelValue, 64)
-
-	if err != nil {
-		log.Printf("Provided label value %s should be of type float", rawLabelValue)
-		return fallback
-	}
-
-	return float64(value)
 }

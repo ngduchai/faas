@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"io/ioutil"
+	"math"
 	"net/http"
 	"testing"
 
@@ -13,186 +13,152 @@ import (
 	"github.com/ngduchai/faas/gateway/scaling"
 )
 
-func Test_RequestRealtimeParams_with_realtime(t *testing.T) {
+func Test_ParseCreateFunctionRequest_with_realtime(t *testing.T) {
 	request := requests.CreateFunctionRequest{}
 	request.Service = "test"
 	request.Labels = &map[string]string{}
-	(*request.Labels)["realtime"] = "10"
-	(*request.Labels)["functionsize"] = "0.5"
-	(*request.Labels)["duration"] = "100"
+	request.Realtime = 10
+	request.Limits = &requests.FunctionResources{
+		CPU:    "1",
+		Memory: "10024MiB",
+	}
+	request.Resources = &requests.FunctionResources{
+		CPU:    "0.01",
+		Memory: "32MiB",
+	}
+	request.Timeout = 100
 	body, _ := json.Marshal(request)
 	reader := bytes.NewReader(body)
 	hreq, _ := http.NewRequest(http.MethodPost, "/?test=1", reader)
 	hreq.Header.Set("X-Source", "unit-test")
 
 	rm := ResourceManager{}
-	functionName, realtime, size, duration, error := rm.RequestRealtimeParams(hreq)
+	cfreq, error := rm.ParseCreateFunctionRequest(hreq)
 
-	if functionName != "test" {
-		t.Errorf("RequestRealtimeParams - functionName want: %s, got %s", "test", functionName)
+	if cfreq.Service != "test" {
+		t.Errorf("ParseCreateFunctionRequest - functionName want: %s, got %s", "test", cfreq.Service)
 		t.Fail()
 	}
 
-	if realtime != 10.0 {
-		t.Errorf("RequestRealtimeParams - realtime want: %s, got %f", "10.0", realtime)
+	if cfreq.Realtime != 10.0 {
+		t.Errorf("ParseCreateFunctionRequest - Realtime want: %s, got %f", "10.0", cfreq.Realtime)
 		t.Fail()
 	}
-	if size != 0.5 {
-		t.Errorf("RequestRealtimeParams - size want: %s, got %f", "0.5", size)
-		t.Fail()
-	}
-	if duration != 100 {
-		t.Errorf("RequestRealtimeParams - duration: want: %s, got %d", "100", duration)
+	if cfreq.Timeout != 100 {
+		t.Errorf("ParseCreateFunctionRequest - Timeout: want: %s, got %d", "100", cfreq.Timeout)
 		t.Fail()
 	}
 	if error != nil {
-		t.Errorf("RequestRealtimeParams - error want: %s, got %s", "nil", error.Error())
+		t.Errorf("ParseCreateFunctionRequest - error want: %s, got %s", "nil", error.Error())
 		t.Fail()
 	}
 
 }
 
-func Test_RequestRealtimeParams_without_realtime(t *testing.T) {
-	request := requests.CreateFunctionRequest{}
-	request.Service = "test"
-	request.Labels = nil
-	body, _ := json.Marshal(request)
-	reader := bytes.NewReader(body)
-	hreq, _ := http.NewRequest(http.MethodPost, "/?test=2", reader)
-	hreq.Header.Set("X-Source", "unit-test")
-
-	rm := ResourceManager{}
-	functionName, realtime, size, duration, error := rm.RequestRealtimeParams(hreq)
-
-	if functionName != "test" {
-		t.Errorf("RequestRealtimeParams - functionName want: %s, got %s", "test", functionName)
-		t.Fail()
-	}
-
-	if realtime != 0 {
-		t.Errorf("RequestRealtimeParams - realtime want: %s, got %f", "0", realtime)
-		t.Fail()
-	}
-	if size != 1.0 {
-		t.Errorf("RequestRealtimeParams - size want: %s, got %f", "1.0", size)
-		t.Fail()
-	}
-	if duration != 60 {
-		t.Errorf("RequestRealtimeParams - duration: want: %s, got %d", "60", duration)
-		t.Fail()
-	}
-	if error != nil {
-		t.Errorf("RequestRealtimeParams - error want: %s, got %s", "nil", error.Error())
-		t.Fail()
-	}
-
-}
-
-func Test_RequestRealtimeParams_incorrect_message(t *testing.T) {
+func Test_ParseCreateFunctionRequest_incorrect_message(t *testing.T) {
 	reader := bytes.NewReader([]byte("Hello world"))
 	hreq, _ := http.NewRequest(http.MethodPost, "/?test=3", reader)
 	hreq.Header.Set("X-Source", "unit-test")
 
 	rm := ResourceManager{}
 	//functionName, realtime, size, duration, error := rm.RequestRealtimeParams(hreq)
-	_, _, _, _, error := rm.RequestRealtimeParams(hreq)
+	_, err := rm.ParseCreateFunctionRequest(hreq)
 
-	if error == nil {
-		t.Errorf("RequestRealtimeParams - error want: %s, got %s", " != nil", "nil")
+	if err == nil {
+		t.Errorf("ParseCreateFunctionRequest - error want: %s, got %s", " != nil", "nil")
 		t.Fail()
 	}
 
 }
 
-func Test_SetRealtimeParams_correct_params(t *testing.T) {
+func Test_DumpCreateFunctionRequest_correct_params(t *testing.T) {
 	request := requests.CreateFunctionRequest{}
 	request.Service = "test"
 	request.Labels = &map[string]string{}
-	(*request.Labels)["realtime"] = "10"
-	(*request.Labels)["functionsize"] = "0.5"
-	(*request.Labels)["duration"] = "100"
-	body, _ := json.Marshal(request)
-	reader := bytes.NewReader(body)
-	hreq, _ := http.NewRequest(http.MethodPost, "/?test=1", reader)
+	request.Realtime = 10
+	request.Limits = &requests.FunctionResources{
+		CPU:    "1",
+		Memory: "10024MiB",
+	}
+	request.Resources = &requests.FunctionResources{
+		CPU:    "0.01",
+		Memory: "32MiB",
+	}
+	request.Timeout = 100
+	reader := bytes.NewReader([]byte("Hello world"))
+	hreq, _ := http.NewRequest(http.MethodPost, "/?test=3", reader)
 	hreq.Header.Set("X-Source", "unit-test")
 
 	rm := ResourceManager{}
-	error := rm.SetRealtimeParams(hreq, 20, 0.1, 120)
+	err := rm.DumpCreateFunctionRequest(hreq, &request)
 
-	if error != nil {
-		t.Errorf("SetRealtimeParams - error want: %s, got %s", "nil", error.Error())
-		t.Fail()
-	}
-	body, _ = ioutil.ReadAll(hreq.Body)
-	request = requests.CreateFunctionRequest{}
-	error = json.Unmarshal(body, &request)
-	if error != nil {
-		t.Errorf("SetRealtimeParams - unable to unmarshal the updated request")
-		t.Fail()
-	}
-	if request.Labels == nil {
-		t.Errorf("SetRealtimeParams - empty Labels")
+	if err != nil {
+		t.Errorf("DumpCreateFunctionRequest - error -- Unable to dump request: %s", err.Error())
 		t.Fail()
 	}
 
-	realtime := extractLabelRealValue((*request.Labels)["realtime"], float64(0))
-	size := extractLabelRealValue((*request.Labels)["functionsize"], float64(1.0))
-	duration := extractLabelValue((*request.Labels)["duration"], uint64(60))
-	if realtime != 20 {
-		t.Errorf("SetRealtimeParams - realtime want: %s, got %f", "20", realtime)
+	req, err := rm.ParseCreateFunctionRequest(hreq)
+	if err != nil {
+		t.Errorf("DumpCreateFunctionRequest - error -- Dumped request is unreadable: %s", err.Error())
 		t.Fail()
 	}
-	if size != 0.1 {
-		t.Errorf("SetRealtimeParams - size want: %s, got %f", "0.1", size)
+
+	if req.Realtime != request.Realtime {
+		t.Errorf("DumpCreateFunctionRequest - Realtime: want: %f, got %f", request.Realtime, req.Realtime)
 		t.Fail()
 	}
-	if duration != 120 {
-		t.Errorf("SetRealtimeParams - duration want: %s, got %d", "120", duration)
+	if req.Timeout != request.Timeout {
+		t.Errorf("DumpCreateFunctionRequest - Timeout: want: %d, got %d", request.Timeout, req.Timeout)
+		t.Fail()
+	}
+	if req.Service != request.Service {
+		t.Errorf("DumpCreateFunctionRequest - functionName: want: %s, got %s", request.Service, req.Service)
+		t.Fail()
+	}
+	if req.Resources.CPU != request.Resources.CPU {
+		t.Errorf("DumpCreateFunctionRequest - CPU: want: %s, got %s", request.Resources.CPU, req.Resources.CPU)
+		t.Fail()
+	}
+	if req.Resources.Memory != request.Resources.Memory {
+		t.Errorf("DumpCreateFunctionRequest - CPU: want: %s, got %s", request.Resources.Memory, req.Resources.Memory)
 		t.Fail()
 	}
 }
 
-func Test_SetRealtimeParams_add_realtime_params(t *testing.T) {
+func Test_ContainerConcurrency(t *testing.T) {
 	request := requests.CreateFunctionRequest{}
 	request.Service = "test"
-	request.Labels = nil
-	body, _ := json.Marshal(request)
-	reader := bytes.NewReader(body)
-	hreq, _ := http.NewRequest(http.MethodPost, "/?test=1", reader)
-	hreq.Header.Set("X-Source", "unit-test")
-
+	request.Labels = &map[string]string{}
+	request.Realtime = 10
+	request.Limits = &requests.FunctionResources{
+		CPU:    "1",
+		Memory: "10240Mi",
+	}
+	request.Resources = &requests.FunctionResources{
+		CPU:    "0.01",
+		Memory: "32Mi",
+	}
+	request.Timeout = 100
+	expectedConcurrency := int(math.Min(1.0/0.01, 10240.0/32.0))
 	rm := ResourceManager{}
-	error := rm.SetRealtimeParams(hreq, 20, 0.1, 120)
-
-	if error != nil {
-		t.Errorf("SetRealtimeParams - error want: %s, got %s", "nil", error.Error())
+	concurrency, err := rm.ContainerConcurrency(&request)
+	if err != nil {
+		t.Errorf("ContainerConcurrency - error -- Cannot get concurrency: %s", err.Error())
 		t.Fail()
 	}
-	body, _ = ioutil.ReadAll(hreq.Body)
-	request = requests.CreateFunctionRequest{}
-	error = json.Unmarshal(body, &request)
-	if error != nil {
-		t.Errorf("SetRealtimeParams - unable to unmarshal the updated request")
+	if concurrency != expectedConcurrency {
+		t.Errorf("ContainerConcurrency: want: %d, got %d", expectedConcurrency, concurrency)
 		t.Fail()
 	}
-	if request.Labels == nil {
-		t.Errorf("SetRealtimeParams - empty Labels")
+	request.Resources.Memory = "1024Mi"
+	expectedConcurrency = int(math.Min(1.0/0.01, 10240.0/1024.0))
+	concurrency, err = rm.ContainerConcurrency(&request)
+	if err != nil {
+		t.Errorf("ContainerConcurrency - error -- Cannot get concurrency: %s", err.Error())
 		t.Fail()
 	}
-
-	realtime := extractLabelRealValue((*request.Labels)["realtime"], float64(0))
-	size := extractLabelRealValue((*request.Labels)["functionsize"], float64(1.0))
-	duration := extractLabelValue((*request.Labels)["duration"], uint64(60))
-	if realtime != 20 {
-		t.Errorf("SetRealtimeParams - realtime want: %s, got %f", "20", realtime)
-		t.Fail()
-	}
-	if size != 0.1 {
-		t.Errorf("SetRealtimeParams - size want: %s, got %f", "0.1", size)
-		t.Fail()
-	}
-	if duration != 120 {
-		t.Errorf("SetRealtimeParams - duration want: %s, got %d", "120", duration)
+	if concurrency != expectedConcurrency {
+		t.Errorf("ContainerConcurrency: want: %d, got %d", expectedConcurrency, concurrency)
 		t.Fail()
 	}
 }
@@ -210,18 +176,16 @@ func (sq TestServiceQuery) GetReplicas(serviceName string) (scaling.ServiceQuery
 		}
 		//fmt.Printf("Access service %d\n", sq.Info[serviceName].AvailableReplicas)
 		return *f, nil
-	} else {
-		return scaling.ServiceQueryResponse{}, errors.New("function not found")
 	}
+	return scaling.ServiceQueryResponse{}, errors.New("function not found")
 }
 
 func (sq TestServiceQuery) SetReplicas(serviceName string, count uint64) error {
 	if _, ok := sq.Info[serviceName]; ok {
 		sq.Info[serviceName].Replicas = count
 		return nil
-	} else {
-		return errors.New("Function not found")
 	}
+	return errors.New("Function not found")
 }
 
 func Test_DeploymentRealtimeParams(t *testing.T) {
@@ -231,9 +195,9 @@ func Test_DeploymentRealtimeParams(t *testing.T) {
 	minReplicas := uint64(0)
 	scalingFactor := uint64(2)
 	availableReplicas := uint64(2)
-	realTime := float64(1)
-	functionSize := float64(1)
-	functionDuration := uint64(10)
+	functionRealtime := float64(1)
+	functionConcurrency := uint64(10)
+	functionTimeout := uint64(10)
 	serviceQuery := TestServiceQuery{}
 	serviceQuery.Info = map[string]*scaling.ServiceQueryResponse{}
 	serviceQuery.Info["test"] = &scaling.ServiceQueryResponse{
@@ -242,35 +206,35 @@ func Test_DeploymentRealtimeParams(t *testing.T) {
 		MinReplicas:       minReplicas,
 		ScalingFactor:     scalingFactor,
 		AvailableReplicas: availableReplicas,
-		Realtime:          realTime,
-		FunctionSize:      functionSize,
-		Duration:          functionDuration,
+		Realtime:          functionRealtime,
+		Concurrency:       functionConcurrency,
+		Timeout:           functionTimeout,
 	}
 	f.Config.ServiceQuery = serviceQuery
 
 	rm := ResourceManager{}
 
-	realtime, size, duration, replicas, err := rm.DeploymentRealtimeParams("noinfo")
+	realtime, concurrency, timeout, replicas, err := rm.GetRealtimeParams("noinfo")
 	if err == nil {
 		t.Errorf("DeploymentRealtimeParams - get noinfo, want: %s, got %s", "function not found error", "nil")
 		t.Fail()
 	}
 
-	realtime, size, duration, replicas, err = rm.DeploymentRealtimeParams("test")
+	realtime, concurrency, timeout, replicas, err = rm.GetRealtimeParams("test")
 	if err != nil {
 		t.Errorf("DeploymentRealtimeParams - get test error, want: %s, got %s", "nil", err.Error())
 		t.Fail()
 	}
-	if realtime != realTime {
-		t.Errorf("DeploymentRealtimeParams - get test realtime, want: %f, got %f", realTime, realtime)
+	if realtime != functionRealtime {
+		t.Errorf("DeploymentRealtimeParams - get test realtime, want: %f, got %f", functionRealtime, realtime)
 		t.Fail()
 	}
-	if functionSize != size {
-		t.Errorf("DeploymentRealtimeParams - get test size, want: %f, got %f", functionSize, size)
+	if functionConcurrency != concurrency {
+		t.Errorf("DeploymentRealtimeParams - get test size, want: %d, got %d", functionConcurrency, concurrency)
 		t.Fail()
 	}
-	if duration != functionDuration {
-		t.Errorf("DeploymentRealtimeParams - get test duration, want: %d, got %d", functionDuration, duration)
+	if timeout != functionTimeout {
+		t.Errorf("DeploymentRealtimeParams - get test duration, want: %d, got %d", functionTimeout, timeout)
 		t.Fail()
 	}
 }
@@ -282,9 +246,9 @@ func Test_GetAvailReplicas(t *testing.T) {
 	minReplicas := uint64(0)
 	scalingFactor := uint64(2)
 	availableReplicas := uint64(10)
-	realTime := float64(1)
-	functionSize := float64(1)
-	functionDuration := uint64(10)
+	functionRealtime := float64(1)
+	functionConcurrency := uint64(1)
+	functionTimeout := uint64(10)
 	serviceQuery := TestServiceQuery{}
 	serviceQuery.Info = map[string]*scaling.ServiceQueryResponse{}
 	serviceQuery.Info["test"] = &scaling.ServiceQueryResponse{
@@ -293,9 +257,9 @@ func Test_GetAvailReplicas(t *testing.T) {
 		MinReplicas:       minReplicas,
 		ScalingFactor:     scalingFactor,
 		AvailableReplicas: availableReplicas,
-		Realtime:          realTime,
-		FunctionSize:      functionSize,
-		Duration:          functionDuration,
+		Realtime:          functionRealtime,
+		Concurrency:       functionConcurrency,
+		Timeout:           functionTimeout,
 	}
 	f.Config.ServiceQuery = serviceQuery
 
@@ -327,9 +291,9 @@ func Test_WaitforAvailReplicas(t *testing.T) {
 	minReplicas := uint64(0)
 	scalingFactor := uint64(2)
 	availableReplicas := uint64(2)
-	realTime := float64(1)
-	functionSize := float64(1)
-	functionDuration := uint64(10)
+	functionRealtime := float64(1)
+	functionConcurrency := uint64(1)
+	functionTimeout := uint64(10)
 	serviceQuery := TestServiceQuery{}
 	serviceQuery.Info = map[string]*scaling.ServiceQueryResponse{}
 	serviceQuery.Info["test"] = &scaling.ServiceQueryResponse{
@@ -338,9 +302,9 @@ func Test_WaitforAvailReplicas(t *testing.T) {
 		MinReplicas:       minReplicas,
 		ScalingFactor:     scalingFactor,
 		AvailableReplicas: availableReplicas,
-		Realtime:          realTime,
-		FunctionSize:      functionSize,
-		Duration:          functionDuration,
+		Realtime:          functionRealtime,
+		Concurrency:       functionConcurrency,
+		Timeout:           functionTimeout,
 	}
 	f.Config.ServiceQuery = serviceQuery
 
@@ -372,7 +336,7 @@ func Test_WaitforAvailReplicas(t *testing.T) {
 	replicas = uint64(7)
 	serviceQuery.Info["test"].AvailableReplicas = 0
 	serviceQuery.Info["test"].Replicas = replicas
-	serviceQuery = serviceQuery
+
 	f.Config.ServiceQuery = serviceQuery
 	ready = rm.WaitForAvailReplicas("test", replicas, retry, interval)
 	serviceQuery = f.Config.ServiceQuery.(TestServiceQuery)
@@ -394,9 +358,9 @@ func Test_Scale(t *testing.T) {
 	minReplicas := uint64(0)
 	scalingFactor := uint64(2)
 	availableReplicas := uint64(2)
-	realTime := float64(1)
-	functionSize := float64(1)
-	functionDuration := uint64(10)
+	functionRealtime := float64(1)
+	functionConcurrency := uint64(1)
+	functionTimeout := uint64(10)
 	serviceQuery := TestServiceQuery{}
 	serviceQuery.Info = map[string]*scaling.ServiceQueryResponse{}
 	serviceQuery.Info["test"] = &scaling.ServiceQueryResponse{
@@ -405,9 +369,9 @@ func Test_Scale(t *testing.T) {
 		MinReplicas:       minReplicas,
 		ScalingFactor:     scalingFactor,
 		AvailableReplicas: availableReplicas,
-		Realtime:          realTime,
-		FunctionSize:      functionSize,
-		Duration:          functionDuration,
+		Realtime:          functionRealtime,
+		Concurrency:       functionConcurrency,
+		Timeout:           functionTimeout,
 	}
 	f.Config.ServiceQuery = serviceQuery
 

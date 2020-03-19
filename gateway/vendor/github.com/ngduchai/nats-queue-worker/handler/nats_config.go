@@ -4,7 +4,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/openfaas/nats-queue-worker/nats"
+	"github.com/ngduchai/nats-queue-worker/nats"
 )
 
 type NATSConfig interface {

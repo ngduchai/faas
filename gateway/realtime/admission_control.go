@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+// AdmissionControl admission control interface for function deployment,
+// update and deletion
 type AdmissionControl interface {
 	Register(
 		w http.ResponseWriter,

@@ -87,6 +87,22 @@ func (ReadConfig) Read(hasEnv HasEnv) GatewayConfig {
 		}
 	}
 
+	faasNATSClusterName := hasEnv.Getenv("faas_nats_cluster_name")
+	if len(faasNATSClusterName) > 0 {
+		cfg.NATSClusterName = &faasNATSClusterName
+	} else {
+		v := "faas-cluster"
+		cfg.NATSClusterName = &v
+	}
+
+	faasNATSChannel := hasEnv.Getenv("faas_nats_channel")
+	if len(faasNATSChannel) > 0 {
+		cfg.NATSChannel = &faasNATSChannel
+	} else {
+		v := "faas-request"
+		cfg.NATSChannel = &v
+	}
+
 	prometheusPort := hasEnv.Getenv("faas_prometheus_port")
 	if len(prometheusPort) > 0 {
 		prometheusPortVal, err := strconv.Atoi(prometheusPort)
@@ -160,6 +176,12 @@ type GatewayConfig struct {
 
 	// Port of the NATS Service. Required for async mode.
 	NATSPort *int
+
+	// The name of the NATS Streaming cluster. Required for async mode.
+	NATSClusterName *string
+
+	// NATSChannel is the name of the NATS Streaming channel used for asynchronous function invocations.
+	NATSChannel *string
 
 	// Host to connect to Prometheus.
 	PrometheusHost string

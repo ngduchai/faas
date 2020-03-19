@@ -102,7 +102,7 @@ func (s ExternalServiceQuery) GetReplicas(serviceName string) (scaling.ServiceQu
 	scalingFactor := uint64(scaling.DefaultScalingFactor)
 	availableReplicas := function.AvailableReplicas
 	realTime := float64(0)
-	functionSize := float64(1)
+	concurrency := uint64(1)
 	duration := uint64(60)
 
 	if function.Labels != nil {
@@ -119,8 +119,8 @@ func (s ExternalServiceQuery) GetReplicas(serviceName string) (scaling.ServiceQu
 		}
 
 		realTime = extractLabelRealValue(labels["realtime"], realTime)
-		functionSize = extractLabelRealValue(labels["functionsize"], functionSize)
-		duration = extractLabelValue(labels["duration"], duration)
+		concurrency = extractLabelValue(labels["concurrency"], concurrency)
+		duration = extractLabelValue(labels["timeout"], duration)
 	}
 
 	log.Printf("GetReplicas took: %fs", time.Since(start).Seconds())
@@ -132,8 +132,8 @@ func (s ExternalServiceQuery) GetReplicas(serviceName string) (scaling.ServiceQu
 		ScalingFactor:     scalingFactor,
 		AvailableReplicas: availableReplicas,
 		Realtime:          realTime,
-		FunctionSize:      functionSize,
-		Duration:          duration,
+		Concurrency:       concurrency,
+		Timeout:           duration,
 	}, err
 }
 
