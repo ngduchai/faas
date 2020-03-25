@@ -17,9 +17,9 @@ cd watchdog
 if [ ! $http_proxy == "" ] 
 then
     docker build --no-cache --build-arg https_proxy=$https_proxy --build-arg http_proxy=$http_proxy \
-        --build-arg GIT_COMMIT=$GIT_COMMIT --build-arg VERSION=$VERSION -t openfaas/watchdog:build .
+        --build-arg GIT_COMMIT=$GIT_COMMIT --build-arg VERSION=$VERSION -t ngduchai/watchdog:build .
 else
-    docker build --no-cache --build-arg VERSION=$VERSION --build-arg GIT_COMMIT=$GIT_COMMIT -t openfaas/watchdog:build .
+    docker build --no-cache --build-arg VERSION=$VERSION --build-arg GIT_COMMIT=$GIT_COMMIT -t ngduchai/watchdog:build .
 fi
 
 docker build --no-cache --build-arg PLATFORM="-armhf" -t ngduchai/classic-watchdog:latest-dev-armhf . -f Dockerfile.packager
@@ -27,7 +27,7 @@ docker build --no-cache --build-arg PLATFORM="-arm64" -t ngduchai/classic-watchd
 docker build --no-cache --build-arg PLATFORM=".exe" -t ngduchai/classic-watchdog:latest-dev-windows . -f Dockerfile.packager
 docker build --no-cache --build-arg PLATFORM="" -t ngduchai/classic-watchdog:latest-dev-x86_64 . -f Dockerfile.packager
 
-docker create --name buildoutput openfaas/watchdog:build echo
+docker create --name buildoutput ngduchai/watchdog:build echo
 
 docker cp buildoutput:/go/src/github.com/ngduchai/faas/watchdog/watchdog ./fwatchdog
 docker cp buildoutput:/go/src/github.com/ngduchai/faas/watchdog/watchdog-armhf ./fwatchdog-armhf

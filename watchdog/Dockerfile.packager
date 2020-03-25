@@ -1,6 +1,6 @@
-FROM openfaas/watchdog:build as build
+FROM ngduchai/watchdog:build as build
 FROM scratch
 
 ARG PLATFORM
 
-COPY --from=build /go/src/github.com/openfaas/faas/watchdog/watchdog$PLATFORM ./fwatchdog
+COPY --from=build /go/src/github.com/ngduchai/faas/watchdog/watchdog$PLATFORM ./fwatchdog
