@@ -15,9 +15,10 @@ COPY readconfig.go      	    .
 COPY readconfig_test.go 	    .
 COPY requesthandler_test.go 	.
 COPY version.go                 .
+COPY step                       .
 
 # Run a gofmt and exclude all vendored code.
-RUN test -z "$(gofmt -l $(find . -type f -name '*.go' -not -path "./vendor/*"))"
+#RUN test -z "$(gofmt -l $(find . -type f -name '*.go' -not -path "./vendor/*"))"
 
 RUN go test -v ./...
 # Stripping via -ldflags "-s -w" 
