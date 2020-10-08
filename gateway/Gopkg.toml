@@ -50,7 +50,7 @@
   version = "0.2.0"
 
 [[constraint]]
-  name = "k8s.io/apimachinery/pkg/api/resource"
+  name = "k8s.io/apimachinery"
   version = "0.19.2"
 
 [prune]
