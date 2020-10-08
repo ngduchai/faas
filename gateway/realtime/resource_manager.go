@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	"github.com/ngduchai/faas/gateway/requests"
 	"github.com/ngduchai/faas/gateway/scaling"
 )
@@ -81,11 +83,11 @@ func processRequest(
 }
 
 // Return realtime, functionsize (= function/replicas), and duration
-func (rm ResourceManager) RequestRealtimeParams(req *http.Request) (string, float64, uint64, uint64, error) {
+func (rm ResourceManager) RequestRealtimeParams(req *http.Request) (string, float64, int64, int64, uint64, error) {
 	body, err := ioutil.ReadAll(req.Body)
 	if err != nil {
 		log.Printf("Cannot read parameters: %s\n", err.Error())
-		return "", 0.0, 10, 60, err
+		return "", 0.0, 1000, 256 * 1024 * 1024, 10000, err
 	}
 	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
 	request := requests.CreateFunctionRequest{}
@@ -93,25 +95,49 @@ func (rm ResourceManager) RequestRealtimeParams(req *http.Request) (string, floa
 	req.Body = rdr
 	if err != nil {
 		log.Printf("Cannot read JSON params: %s", err.Error())
-		return "", 0.0, 1.0, 60, err
+		return "", 0.0, 1000, 256 * 1024 * 1024, 10000, err
 	}
 
-	if request.Labels == nil {
-		// Return default value
-		return request.Service, 0.0, 1.0, 60, nil
-	}
+	// if request.Labels == nil {
+	// 	// Return default value
+	// 	return request.Service, 0.0, 1.0, 256, 10000, 60, nil
+	// }
 	functionName := request.Service
-	realtime := extractLabelRealValue((*request.Labels)["realtime"], float64(0))
-	size := extractLabelValue((*request.Labels)["functionsize"], uint64(256))
-	duration := extractLabelValue((*request.Labels)["duration"], uint64(60))
-	return functionName, realtime, size, duration, nil
+	realtime := request.Realtime
+	duration := request.Timeout
+	cpus, err := rm.GetCPUQuantity(request.Requests.CPU)
+	if err != nil {
+		return functionName, realtime, cpus, 256 * 1024 * 1024, duration, err
+	}
+	memory, err := rm.GetMemoryQuantity(request.Resources.Memory)
+	// realtime := extractLabelRealValue((*request.Labels)["realtime"], float64(0))
+	// size := extractLabelValue((*request.Labels)["functionsize"], uint64(256))
+	// duration := extractLabelValue((*request.Labels)["duration"], uint64(60))
+	return functionName, realtime, cpus, memory, duration, err
+}
+
+func (rm ResourceManager) GetCPUQuantity(str string) (int64, error) {
+	quantity, err := resource.ParseQuantity(str)
+	if err != nil {
+		return 0, err
+	}
+	return quantity.Value(), nil
+}
+
+func (rm ResourceManager) GetMemoryQuantity(str string) (int64, error) {
+	quantity, err := resource.ParseQuantity(str)
+	if err != nil {
+		return 0, err
+	}
+	return quantity.Value(), nil
 }
 
 // Return realtime, functionsize (= cpus), and duration
 func (rm ResourceManager) SetRealtimeParams(
 	req *http.Request,
 	realtime float64,
-	size uint64,
+	cpus int64,
+	memory int64,
 	duration uint64) error {
 
 	body, _ := ioutil.ReadAll(req.Body)
@@ -126,9 +152,67 @@ func (rm ResourceManager) SetRealtimeParams(
 	if request.Labels == nil {
 		request.Labels = &map[string]string{}
 	}
+	request.Realtime = realtime
+	request.Timeout = duration
+	request.Resources.CPU = strconv.FormatInt(cpus, 10)
+	request.Resources.Memory = strconv.FormatInt(memory, 10)
+
+	// Update label for later retrivals
 	(*request.Labels)["realtime"] = fmt.Sprint(realtime)
-	(*request.Labels)["functionsize"] = fmt.Sprint(size)
+	(*request.Labels)["cpus"] = fmt.Sprint(cpus)
+	(*request.Labels)["memory"] = fmt.Sprint(memory)
 	(*request.Labels)["duration"] = fmt.Sprint(duration)
+
+	body, err = json.Marshal(request)
+	if err != nil {
+		return err
+	}
+	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+	req.Body = rdr
+	return nil
+}
+
+func ReserveResource(req *http.Request, cpu int64, memory int64) error {
+	body, _ := ioutil.ReadAll(req.Body)
+	//rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+	request := requests.CreateFunctionRequest{}
+	err := json.Unmarshal(body, &request)
+	//req.Body = rdr
+
+	if err != nil {
+		return err
+	}
+
+	request.Requests.CPU = fmt.Sprint(cpu)
+	request.Requests.Memory = fmt.Sprint(memory)
+
+	body, err = json.Marshal(request)
+	if err != nil {
+		return err
+	}
+	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+	req.Body = rdr
+	return nil
+}
+
+func RestrictRuntime(req *http.Request, timeout uint64) error {
+	body, _ := ioutil.ReadAll(req.Body)
+	//rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+	request := requests.CreateFunctionRequest{}
+	err := json.Unmarshal(body, &request)
+	//req.Body = rdr
+
+	if err != nil {
+		return err
+	}
+
+	if request.EnvVars == nil {
+		request.EnvVars = map[string]string{}
+	}
+	t := timeout / 1000
+	request.EnvVars["exec_timeout"] = fmt.Sprint(t)
+	request.EnvVars["read_timeout"] = fmt.Sprint(t)
+	request.EnvVars["write_timeout"] = fmt.Sprint(t)
 
 	body, err = json.Marshal(request)
 	if err != nil {
@@ -194,23 +278,24 @@ func (rm ResourceManager) Scale(functionName string, realtimeReplicas uint64) er
 
 /* Given a function name and return the following:
    - realtime (guaranteed invocation per second)
-   - size (number of cpu per invocation
+   - cpus (number of cpu per invocation)
+   - memory (number of memory per invocation)
    - duration (maximum runtime)
    - availReplicas (number of available replicas
    - error */
 func (rm ResourceManager) DeploymentRealtimeParams(
-	functionName string) (float64, uint64, uint64, uint64, error) {
+	functionName string) (float64, int64, int64, uint64, uint64, error) {
 
 	f := scaling.GetScalerInstance()
 	scaleInfo, err := f.Config.ServiceQuery.GetReplicas(functionName)
 
 	if err != nil {
-		return 0, 0, 0, 60, err
+		return 0, 0, 0, 0, 10000, err
 	}
 
 	f.Cache.Set(functionName, scaleInfo)
 
-	return scaleInfo.Realtime, scaleInfo.FunctionSize, scaleInfo.Duration, scaleInfo.Replicas, nil
+	return scaleInfo.Realtime, scaleInfo.CPU, scaleInfo.Memory, scaleInfo.Duration, scaleInfo.Replicas, nil
 }
 
 /* Check if available replicas meet expect ones */

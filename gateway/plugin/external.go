@@ -102,7 +102,8 @@ func (s ExternalServiceQuery) GetReplicas(serviceName string) (scaling.ServiceQu
 	scalingFactor := uint64(scaling.DefaultScalingFactor)
 	availableReplicas := function.AvailableReplicas
 	realTime := float64(0)
-	functionSize := float64(1)
+	cpu := int64(1)
+	memory := int64(256 * 1024 * 1024)
 	duration := uint64(60)
 
 	if function.Labels != nil {
@@ -119,7 +120,8 @@ func (s ExternalServiceQuery) GetReplicas(serviceName string) (scaling.ServiceQu
 		}
 
 		realTime = extractLabelRealValue(labels["realtime"], realTime)
-		functionSize = extractLabelRealValue(labels["functionsize"], functionSize)
+		cpu = int64(extractLabelValue(labels["cpu"], uint64(cpu)))
+		memory = int64(extractLabelValue(labels["memory"], uint64(memory)))
 		duration = extractLabelValue(labels["duration"], duration)
 	}
 
@@ -132,7 +134,8 @@ func (s ExternalServiceQuery) GetReplicas(serviceName string) (scaling.ServiceQu
 		ScalingFactor:     scalingFactor,
 		AvailableReplicas: availableReplicas,
 		Realtime:          realTime,
-		FunctionSize:      functionSize,
+		CPU:               cpu,
+		Memory:            memory,
 		Duration:          duration,
 	}, err
 }

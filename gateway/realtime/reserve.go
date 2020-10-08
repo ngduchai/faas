@@ -25,18 +25,26 @@ func (ac ReserveAdmissionControl) Register(
 	rm := ResourceManager{}
 
 	// Get realtime params
-	functionName, realtime, size, duration, error := rm.RequestRealtimeParams(r)
+	functionName, realtime, cpu, memory, duration, error := rm.RequestRealtimeParams(r)
 	if error != nil {
 		statusCode := http.StatusNotFound
 		w.WriteHeader(statusCode)
 		error = errors.New("Function parametera are invalid")
 		return statusCode, error
 	}
-	numReplicas := uint64(math.Ceil(realtime * size * float64(duration)))
-	if numReplicas < 1 {
-		numReplicas = 1
+	// numReplicas := uint64(math.Ceil(realtime * size * float64(duration)))
+	// if numReplicas < 1 {
+	// 	numReplicas = 1
+	// }
+	numReplicas := uint64(1)
+	totalCpu := int64(realtime * float64(cpu) * float64(duration) / 1000)
+	totalMemory := int64(realtime * float64(memory) * float64(duration) / 1000)
+	if realtime > 0 {
+		rm.ReserveResource(r, totalCpu, totalMemory)
 	}
-
+	if timeout > 0 {
+		rm.RestrictRuntime(r, timeout)
+	}
 	// Create function image
 	res, error := rm.CreateImage(r, proxyClient, baseURL, requestURL, timeout, writeRequestURI)
 	if error != nil {
@@ -72,7 +80,7 @@ func (ac ReserveAdmissionControl) Register(
 				log.Printf("Unable to rollback function %s deployment", functionName)
 			}
 			statusCode = http.StatusInternalServerError
-			error = errors.New("Insuffcient resources. Cancel deployment!\n")
+			error = errors.New("Insuffcient resources. Cancel deployment")
 		}
 	}
 	w.WriteHeader(statusCode)

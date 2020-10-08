@@ -93,12 +93,12 @@ func main() {
 
 	alertHandler := plugin.NewExternalServiceQuery(*config.FunctionsProviderURL, credentials)
 	realtimeHandleConfig := scaling.ScalingConfig{
-		MaxPollCount:          uint(1000),
-		SetScaleRetries:       uint(20),
-		FunctionPollInterval:  time.Millisecond * 50,
-		CacheExpiry:           time.Second * 5,
-		ServiceQuery:          alertHandler,
-		ContainerConcurrentcy: 100,
+		MaxPollCount:         uint(1000),
+		SetScaleRetries:      uint(20),
+		FunctionPollInterval: time.Millisecond * 50,
+		CacheExpiry:          time.Second * 5,
+		ServiceQuery:         alertHandler,
+		ContainerConcurrency: 100,
 	}
 	scaling.SetupRealtime(realtimeHandleConfig)
 

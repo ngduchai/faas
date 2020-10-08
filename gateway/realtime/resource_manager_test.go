@@ -17,16 +17,20 @@ func Test_RequestRealtimeParams_with_realtime(t *testing.T) {
 	request := requests.CreateFunctionRequest{}
 	request.Service = "test"
 	request.Labels = &map[string]string{}
-	(*request.Labels)["realtime"] = "10"
-	(*request.Labels)["functionsize"] = "0.5"
-	(*request.Labels)["duration"] = "100"
+	// (*request.Labels)["realtime"] = "10"
+	// (*request.Labels)["functionsize"] = "0.5"
+	// (*request.Labels)["duration"] = "100"
+	request.Realtime = 10
+	request.Resources.CPU = "0.5"
+	request.Resources.Memory = "100Mi"
+	request.Timeout = 100
 	body, _ := json.Marshal(request)
 	reader := bytes.NewReader(body)
 	hreq, _ := http.NewRequest(http.MethodPost, "/?test=1", reader)
 	hreq.Header.Set("X-Source", "unit-test")
 
 	rm := ResourceManager{}
-	functionName, realtime, size, duration, error := rm.RequestRealtimeParams(hreq)
+	functionName, realtime, cpu, memory, duration, error := rm.RequestRealtimeParams(hreq)
 
 	if functionName != "test" {
 		t.Errorf("RequestRealtimeParams - functionName want: %s, got %s", "test", functionName)
@@ -37,8 +41,12 @@ func Test_RequestRealtimeParams_with_realtime(t *testing.T) {
 		t.Errorf("RequestRealtimeParams - realtime want: %s, got %f", "10.0", realtime)
 		t.Fail()
 	}
-	if size != 0.5 {
-		t.Errorf("RequestRealtimeParams - size want: %s, got %f", "0.5", size)
+	if cpu != 500 {
+		t.Errorf("RequestRealtimeParams - size want: %s, got %f", "500", cpu)
+		t.Fail()
+	}
+	if memory != 100*1000000 {
+		t.Errorf("RequestRealtimeParams - size want: %s, got %f", "0.5", memory)
 		t.Fail()
 	}
 	if duration != 100 {
@@ -62,7 +70,7 @@ func Test_RequestRealtimeParams_without_realtime(t *testing.T) {
 	hreq.Header.Set("X-Source", "unit-test")
 
 	rm := ResourceManager{}
-	functionName, realtime, size, duration, error := rm.RequestRealtimeParams(hreq)
+	functionName, realtime, cpu, memory, duration, error := rm.RequestRealtimeParams(hreq)
 
 	if functionName != "test" {
 		t.Errorf("RequestRealtimeParams - functionName want: %s, got %s", "test", functionName)
@@ -73,12 +81,16 @@ func Test_RequestRealtimeParams_without_realtime(t *testing.T) {
 		t.Errorf("RequestRealtimeParams - realtime want: %s, got %f", "0", realtime)
 		t.Fail()
 	}
-	if size != 1.0 {
-		t.Errorf("RequestRealtimeParams - size want: %s, got %f", "1.0", size)
+	if cpu != 1000 {
+		t.Errorf("RequestRealtimeParams - size want: %s, got %f", "1000", cpu)
 		t.Fail()
 	}
-	if duration != 60 {
-		t.Errorf("RequestRealtimeParams - duration: want: %s, got %d", "60", duration)
+	if memory != 256*1024*1024 {
+		t.Errorf("RequestRealtimeParams - size want: %s, got %f", "256M", memory)
+		t.Fail()
+	}
+	if duration != 10000 {
+		t.Errorf("RequestRealtimeParams - duration: want: %s, got %d", "10000", duration)
 		t.Fail()
 	}
 	if error != nil {
@@ -95,7 +107,7 @@ func Test_RequestRealtimeParams_incorrect_message(t *testing.T) {
 
 	rm := ResourceManager{}
 	//functionName, realtime, size, duration, error := rm.RequestRealtimeParams(hreq)
-	_, _, _, _, error := rm.RequestRealtimeParams(hreq)
+	_, _, _, _, _, error := rm.RequestRealtimeParams(hreq)
 
 	if error == nil {
 		t.Errorf("RequestRealtimeParams - error want: %s, got %s", " != nil", "nil")
@@ -117,7 +129,7 @@ func Test_SetRealtimeParams_correct_params(t *testing.T) {
 	hreq.Header.Set("X-Source", "unit-test")
 
 	rm := ResourceManager{}
-	error := rm.SetRealtimeParams(hreq, 20, 0.1, 120)
+	error := rm.SetRealtimeParams(hreq, 20, 100, 200, 1000)
 
 	if error != nil {
 		t.Errorf("SetRealtimeParams - error want: %s, got %s", "nil", error.Error())
@@ -135,19 +147,29 @@ func Test_SetRealtimeParams_correct_params(t *testing.T) {
 		t.Fail()
 	}
 
-	realtime := extractLabelRealValue((*request.Labels)["realtime"], float64(0))
-	size := extractLabelRealValue((*request.Labels)["functionsize"], float64(1.0))
-	duration := extractLabelValue((*request.Labels)["duration"], uint64(60))
-	if realtime != 20 {
-		t.Errorf("SetRealtimeParams - realtime want: %s, got %f", "20", realtime)
+	realtimeLabel := extractLabelValue((*request.Labels)["realtime"], 0)
+	cpuLabel := extractLabelValue((*request.Labels)["cpu"], 200)
+	memoryLabel := extractLabelValue((*request.Labels)["cpu"], 2000000)
+	durationLabel := extractLabelValue((*request.Labels)["duration"], 10000)
+	realtime := request.Realtime
+	cpu, _ := rm.GetCPUQuantity(request.Resources.CPU)
+	memory, _ := rm.GetMemoryQuantity(request.Resources.Memory)
+	duration := request.Timeout
+
+	if realtime != 20 || realtimeLabel != 20 {
+		t.Errorf("SetRealtimeParams - realtime want: %s, got %f %f", "20", realtime, realtimeLabel)
 		t.Fail()
 	}
-	if size != 0.1 {
-		t.Errorf("SetRealtimeParams - size want: %s, got %f", "0.1", size)
+	if cpu != 100 || cpuLabel != 100 {
+		t.Errorf("SetRealtimeParams - size want: %s, got %f %f", "0.1", cpu, cpuLabel)
 		t.Fail()
 	}
-	if duration != 120 {
-		t.Errorf("SetRealtimeParams - duration want: %s, got %d", "120", duration)
+	if memory != 200 || memoryLabel != 200 {
+		t.Errorf("SetRealtimeParams - size want: %s, got %f %f", "0.1", memory, memoryLabel)
+		t.Fail()
+	}
+	if duration != 1000 || durationLabel != 1000 {
+		t.Errorf("SetRealtimeParams - duration want: %s, got %d", "120", duration, durationLabel)
 		t.Fail()
 	}
 }
@@ -162,7 +184,7 @@ func Test_SetRealtimeParams_add_realtime_params(t *testing.T) {
 	hreq.Header.Set("X-Source", "unit-test")
 
 	rm := ResourceManager{}
-	error := rm.SetRealtimeParams(hreq, 20, 0.1, 120)
+	error := rm.SetRealtimeParams(hreq, 20, 100, 200, 1000)
 
 	if error != nil {
 		t.Errorf("SetRealtimeParams - error want: %s, got %s", "nil", error.Error())
@@ -180,19 +202,29 @@ func Test_SetRealtimeParams_add_realtime_params(t *testing.T) {
 		t.Fail()
 	}
 
-	realtime := extractLabelRealValue((*request.Labels)["realtime"], float64(0))
-	size := extractLabelRealValue((*request.Labels)["functionsize"], float64(1.0))
-	duration := extractLabelValue((*request.Labels)["duration"], uint64(60))
-	if realtime != 20 {
-		t.Errorf("SetRealtimeParams - realtime want: %s, got %f", "20", realtime)
+	realtimeLabel := extractLabelValue((*request.Labels)["realtime"], 0)
+	cpuLabel := extractLabelValue((*request.Labels)["cpu"], 200)
+	memoryLabel := extractLabelValue((*request.Labels)["cpu"], 2000000)
+	durationLabel := extractLabelValue((*request.Labels)["duration"], 10000)
+	realtime := request.Realtime
+	cpu, _ := rm.GetCPUQuantity(request.Resources.CPU)
+	memory, _ := rm.GetMemoryQuantity(request.Resources.Memory)
+	duration := request.Timeout
+
+	if realtime != 20 || realtimeLabel != 20 {
+		t.Errorf("SetRealtimeParams - realtime want: %s, got %f %f", "20", realtime, realtimeLabel)
 		t.Fail()
 	}
-	if size != 0.1 {
-		t.Errorf("SetRealtimeParams - size want: %s, got %f", "0.1", size)
+	if cpu != 100 || cpuLabel != 100 {
+		t.Errorf("SetRealtimeParams - size want: %s, got %f %f", "0.1", cpu, cpuLabel)
 		t.Fail()
 	}
-	if duration != 120 {
-		t.Errorf("SetRealtimeParams - duration want: %s, got %d", "120", duration)
+	if memory != 200 || memoryLabel != 200 {
+		t.Errorf("SetRealtimeParams - size want: %s, got %f %f", "0.1", memory, memoryLabel)
+		t.Fail()
+	}
+	if duration != 1000 || durationLabel != 1000 {
+		t.Errorf("SetRealtimeParams - duration want: %s, got %d", "120", duration, durationLabel)
 		t.Fail()
 	}
 }
@@ -232,7 +264,8 @@ func Test_DeploymentRealtimeParams(t *testing.T) {
 	scalingFactor := uint64(2)
 	availableReplicas := uint64(2)
 	realTime := float64(1)
-	functionSize := float64(1)
+	cpu := int64(100)
+	memory := int64(1000)
 	functionDuration := uint64(10)
 	serviceQuery := TestServiceQuery{}
 	serviceQuery.Info = map[string]*scaling.ServiceQueryResponse{}
@@ -243,20 +276,21 @@ func Test_DeploymentRealtimeParams(t *testing.T) {
 		ScalingFactor:     scalingFactor,
 		AvailableReplicas: availableReplicas,
 		Realtime:          realTime,
-		FunctionSize:      functionSize,
+		CPU:               cpu,
+		Memory:            memory,
 		Duration:          functionDuration,
 	}
 	f.Config.ServiceQuery = serviceQuery
 
 	rm := ResourceManager{}
 
-	realtime, size, duration, replicas, err := rm.DeploymentRealtimeParams("noinfo")
+	realtime, cpus, mem, duration, replicas, err := rm.DeploymentRealtimeParams("noinfo")
 	if err == nil {
 		t.Errorf("DeploymentRealtimeParams - get noinfo, want: %s, got %s", "function not found error", "nil")
 		t.Fail()
 	}
 
-	realtime, size, duration, replicas, err = rm.DeploymentRealtimeParams("test")
+	realtime, cpus, mem, duration, replicas, err = rm.DeploymentRealtimeParams("test")
 	if err != nil {
 		t.Errorf("DeploymentRealtimeParams - get test error, want: %s, got %s", "nil", err.Error())
 		t.Fail()
@@ -265,8 +299,12 @@ func Test_DeploymentRealtimeParams(t *testing.T) {
 		t.Errorf("DeploymentRealtimeParams - get test realtime, want: %f, got %f", realTime, realtime)
 		t.Fail()
 	}
-	if functionSize != size {
-		t.Errorf("DeploymentRealtimeParams - get test size, want: %f, got %f", functionSize, size)
+	if cpus != cpu {
+		t.Errorf("DeploymentRealtimeParams - get test size, want: %f, got %f", cpu, cpus)
+		t.Fail()
+	}
+	if memory != mem {
+		t.Errorf("DeploymentRealtimeParams - get test size, want: %f, got %f", memory, mem)
 		t.Fail()
 	}
 	if duration != functionDuration {
@@ -283,7 +321,8 @@ func Test_GetAvailReplicas(t *testing.T) {
 	scalingFactor := uint64(2)
 	availableReplicas := uint64(10)
 	realTime := float64(1)
-	functionSize := float64(1)
+	cpu := int64(100)
+	memory := int64(1000)
 	functionDuration := uint64(10)
 	serviceQuery := TestServiceQuery{}
 	serviceQuery.Info = map[string]*scaling.ServiceQueryResponse{}
@@ -294,7 +333,8 @@ func Test_GetAvailReplicas(t *testing.T) {
 		ScalingFactor:     scalingFactor,
 		AvailableReplicas: availableReplicas,
 		Realtime:          realTime,
-		FunctionSize:      functionSize,
+		CPU:               cpu,
+		Memory:            memory,
 		Duration:          functionDuration,
 	}
 	f.Config.ServiceQuery = serviceQuery
@@ -328,7 +368,8 @@ func Test_WaitforAvailReplicas(t *testing.T) {
 	scalingFactor := uint64(2)
 	availableReplicas := uint64(2)
 	realTime := float64(1)
-	functionSize := float64(1)
+	cpu := int64(100)
+	memory := int64(1000)
 	functionDuration := uint64(10)
 	serviceQuery := TestServiceQuery{}
 	serviceQuery.Info = map[string]*scaling.ServiceQueryResponse{}
@@ -339,7 +380,8 @@ func Test_WaitforAvailReplicas(t *testing.T) {
 		ScalingFactor:     scalingFactor,
 		AvailableReplicas: availableReplicas,
 		Realtime:          realTime,
-		FunctionSize:      functionSize,
+		CPU:               cpu,
+		Memory:            memory,
 		Duration:          functionDuration,
 	}
 	f.Config.ServiceQuery = serviceQuery
@@ -395,7 +437,8 @@ func Test_Scale(t *testing.T) {
 	scalingFactor := uint64(2)
 	availableReplicas := uint64(2)
 	realTime := float64(1)
-	functionSize := float64(1)
+	cpu := int64(100)
+	memory := int64(1000)
 	functionDuration := uint64(10)
 	serviceQuery := TestServiceQuery{}
 	serviceQuery.Info = map[string]*scaling.ServiceQueryResponse{}
@@ -406,7 +449,8 @@ func Test_Scale(t *testing.T) {
 		ScalingFactor:     scalingFactor,
 		AvailableReplicas: availableReplicas,
 		Realtime:          realTime,
-		FunctionSize:      functionSize,
+		CPU:               cpu,
+		Memory:            memory,
 		Duration:          functionDuration,
 	}
 	f.Config.ServiceQuery = serviceQuery

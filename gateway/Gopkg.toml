@@ -49,6 +49,10 @@
   name = "github.com/prometheus/client_model"
   version = "0.2.0"
 
+[[constraint]]
+  name = "k8s.io/apimachinery/pkg/api/resource"
+  version = "0.19.2"
+
 [prune]
   go-tests = true
   unused-packages = true
