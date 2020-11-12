@@ -91,6 +91,7 @@ func (s ExternalServiceQuery) GetReplicas(serviceName string) (scaling.ServiceQu
 			if err != nil {
 				log.Println(urlPath, err)
 			}
+			log.Printf("Load function: %s", bytesOut)
 		} else {
 			log.Printf("GetReplicas took: %fs", time.Since(start).Seconds())
 			return emptyServiceQueryResponse, fmt.Errorf("server returned non-200 status code (%d) for function, %s", res.StatusCode, serviceName)
@@ -102,7 +103,7 @@ func (s ExternalServiceQuery) GetReplicas(serviceName string) (scaling.ServiceQu
 	scalingFactor := uint64(scaling.DefaultScalingFactor)
 	availableReplicas := function.AvailableReplicas
 	realTime := float64(0)
-	cpu := int64(1)
+	cpu := int64(1000)
 	memory := int64(256 * 1024 * 1024)
 	duration := uint64(60)
 

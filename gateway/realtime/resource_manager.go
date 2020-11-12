@@ -11,10 +11,9 @@ import (
 	"strconv"
 	"time"
 
-	"k8s.io/apimachinery/pkg/api/resource"
-
 	"github.com/ngduchai/faas/gateway/requests"
 	"github.com/ngduchai/faas/gateway/scaling"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 type ResourceManager struct{}
@@ -82,48 +81,109 @@ func processRequest(
 
 }
 
-// Return realtime, functionsize (= function/replicas), and duration
-func (rm ResourceManager) RequestRealtimeParams(req *http.Request) (string, float64, int64, int64, uint64, error) {
-	body, err := ioutil.ReadAll(req.Body)
-	if err != nil {
-		log.Printf("Cannot read parameters: %s\n", err.Error())
-		return "", 0.0, 1000, 256 * 1024 * 1024, 10000, err
-	}
-	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+// ParseRequest returns a CreateFunctionRequest that hold all needed information about function deployment/update
+func (rm ResourceManager) ParseRequest(req *http.Request) (requests.CreateFunctionRequest, error) {
 	request := requests.CreateFunctionRequest{}
-	err = json.Unmarshal(body, &request)
+	body, err := ioutil.ReadAll(req.Body)
+	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+	if err == nil {
+		log.Printf("Message: %s", body)
+		err = json.Unmarshal(body, &request)
+	}
 	req.Body = rdr
-	if err != nil {
-		log.Printf("Cannot read JSON params: %s", err.Error())
-		return "", 0.0, 1000, 256 * 1024 * 1024, 10000, err
-	}
-
-	// if request.Labels == nil {
-	// 	// Return default value
-	// 	return request.Service, 0.0, 1.0, 256, 10000, 60, nil
-	// }
-	functionName := request.Service
-	realtime := request.Realtime
-	duration := request.Timeout
-	cpus, err := rm.GetCPUQuantity(request.Requests.CPU)
-	if err != nil {
-		return functionName, realtime, cpus, 256 * 1024 * 1024, duration, err
-	}
-	memory, err := rm.GetMemoryQuantity(request.Resources.Memory)
-	// realtime := extractLabelRealValue((*request.Labels)["realtime"], float64(0))
-	// size := extractLabelValue((*request.Labels)["functionsize"], uint64(256))
-	// duration := extractLabelValue((*request.Labels)["duration"], uint64(60))
-	return functionName, realtime, cpus, memory, duration, err
+	return request, err
 }
 
+// PackageRequest reformats the request into the form understandable by the underlying system and write to the http request
+func (rm ResourceManager) PackageRequest(cfr requests.CreateFunctionRequest, req *http.Request) error {
+	if cfr.Labels == nil {
+		cfr.Labels = &map[string]string{}
+	}
+	// Update label for later retrivals
+	(*cfr.Labels)["realtime"] = fmt.Sprint(cfr.Realtime)
+	(*cfr.Labels)["cpu"] = fmt.Sprint(cfr.Resources.CPU)
+	(*cfr.Labels)["memory"] = fmt.Sprint(cfr.Resources.Memory)
+	(*cfr.Labels)["duration"] = fmt.Sprint(cfr.Timeout)
+
+	// Update timeout labels
+	if cfr.Timeout > 0 {
+		if cfr.EnvVars == nil {
+			cfr.EnvVars = map[string]string{}
+		}
+		t := float32(cfr.Timeout) / 1000.0
+		cfr.EnvVars["exec_timeout"] = fmt.Sprint(t)
+		cfr.EnvVars["read_timeout"] = fmt.Sprint(t)
+		cfr.EnvVars["write_timeout"] = fmt.Sprint(t)
+	}
+	body, err := json.Marshal(cfr)
+	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+	req.Body = rdr
+	return err
+}
+
+// Return realtime, functionsize (= function/replicas), and duration
+// func (rm ResourceManager) RequestRealtimeParams(req *http.Request) (string, float64, int64, int64, uint64, error) {
+// 	cpus := int64(1000)
+// 	memory := int64(256 * 1024 * 1024)
+// 	duration := uint64(10000)
+// 	body, err := ioutil.ReadAll(req.Body)
+// 	if err != nil {
+// 		log.Printf("Cannot read parameters: %s\n", err.Error())
+// 		return "", 0.0, cpus, memory, duration, err
+// 	}
+// 	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+// 	request := requests.CreateFunctionRequest{}
+// 	log.Printf("Message: %s", body)
+// 	err = json.Unmarshal(body, &request)
+// 	req.Body = rdr
+// 	if err != nil {
+// 		log.Printf("Cannot read JSON params: %s", err.Error())
+// 		return "", 0.0, cpus, memory, duration, err
+// 	}
+
+// 	// if request.Labels == nil {
+// 	// 	// Return default value
+// 	// 	return request.Service, 0.0, 1.0, 256, 10000, 60, nil
+// 	// }
+// 	functionName := request.Service
+// 	realtime := request.Realtime
+// 	if request.Timeout > 0 {
+// 		duration = request.Timeout
+// 	}
+// 	if request.Resources != nil {
+// 		cpus, err = rm.GetCPUQuantity(request.Resources.CPU)
+// 		if err != nil {
+// 			return functionName, realtime, cpus, memory, duration, err
+// 		}
+// 		memory, err = rm.GetMemoryQuantity(request.Resources.Memory)
+// 	}
+// 	// // Make sure the resources are all labeled for later uses
+// 	// if request.Labels == nil {
+// 	// 	request.Labels = &map[string]string{}
+// 	// }
+// 	// // Update label for later retrivals
+// 	// (*request.Labels)["realtime"] = fmt.Sprint(realtime)
+// 	// (*request.Labels)["cpu"] = fmt.Sprint(cpus)
+// 	// (*request.Labels)["memory"] = fmt.Sprint(memory)
+// 	// (*request.Labels)["duration"] = fmt.Sprint(duration)
+
+// 	// realtime := extractLabelRealValue((*request.Labels)["realtime"], float64(0))
+// 	// size := extractLabelValue((*request.Labels)["functionsize"], uint64(256))
+// 	// duration := extractLabelValue((*request.Labels)["duration"], uint64(60))
+// 	log.Printf("realtime: %f duration: %d cpu: %d memory %d", realtime, request.Timeout, cpus, memory)
+// 	return functionName, realtime, cpus, memory, duration, err
+// }
+
+// GetCPUQuantity returns CPU quantity as number
 func (rm ResourceManager) GetCPUQuantity(str string) (int64, error) {
 	quantity, err := resource.ParseQuantity(str)
 	if err != nil {
 		return 0, err
 	}
-	return quantity.Value(), nil
+	return quantity.MilliValue(), nil
 }
 
+// GetMemoryQuantity returns memory quantity as number
 func (rm ResourceManager) GetMemoryQuantity(str string) (int64, error) {
 	quantity, err := resource.ParseQuantity(str)
 	if err != nil {
@@ -132,96 +192,161 @@ func (rm ResourceManager) GetMemoryQuantity(str string) (int64, error) {
 	return quantity.Value(), nil
 }
 
-// Return realtime, functionsize (= cpus), and duration
-func (rm ResourceManager) SetRealtimeParams(
-	req *http.Request,
-	realtime float64,
-	cpus int64,
-	memory int64,
-	duration uint64) error {
-
-	body, _ := ioutil.ReadAll(req.Body)
-	//rdr := ioutil.NopCloser(bytes.NewBuffer(body))
-	request := requests.CreateFunctionRequest{}
-	err := json.Unmarshal(body, &request)
-	//req.Body = rdr
-
+func (rm ResourceManager) GetResourceQuantity(req requests.FunctionResources) (int64, int64, error) {
+	cpus, err := rm.GetCPUQuantity(req.CPU)
 	if err != nil {
-		return err
+		return 0, 0, err
 	}
-	if request.Labels == nil {
-		request.Labels = &map[string]string{}
-	}
-	request.Realtime = realtime
-	request.Timeout = duration
-	request.Resources.CPU = strconv.FormatInt(cpus, 10)
-	request.Resources.Memory = strconv.FormatInt(memory, 10)
-
-	// Update label for later retrivals
-	(*request.Labels)["realtime"] = fmt.Sprint(realtime)
-	(*request.Labels)["cpus"] = fmt.Sprint(cpus)
-	(*request.Labels)["memory"] = fmt.Sprint(memory)
-	(*request.Labels)["duration"] = fmt.Sprint(duration)
-
-	body, err = json.Marshal(request)
-	if err != nil {
-		return err
-	}
-	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
-	req.Body = rdr
-	return nil
+	mem, err := rm.GetMemoryQuantity(req.Memory)
+	return cpus, mem, err
 }
 
-func ReserveResource(req *http.Request, cpu int64, memory int64) error {
-	body, _ := ioutil.ReadAll(req.Body)
-	//rdr := ioutil.NopCloser(bytes.NewBuffer(body))
-	request := requests.CreateFunctionRequest{}
-	err := json.Unmarshal(body, &request)
-	//req.Body = rdr
+// // Return realtime, functionsize (= cpus), and duration
+// func (rm ResourceManager) SetRealtimeParams(
+// 	req *http.Request,
+// 	realtime float64,
+// 	cpus int64,
+// 	memory int64,
+// 	duration uint64) error {
 
-	if err != nil {
-		return err
+// 	body, _ := ioutil.ReadAll(req.Body)
+// 	//rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+// 	request := requests.CreateFunctionRequest{}
+// 	err := json.Unmarshal(body, &request)
+// 	//req.Body = rdr
+
+// 	if err != nil {
+// 		return err
+// 	}
+// 	if request.Labels == nil {
+// 		request.Labels = &map[string]string{}
+// 	}
+// 	request.Realtime = realtime
+// 	request.Timeout = duration
+// 	if request.Resources == nil {
+// 		request.Resources = &requests.FunctionResources{}
+// 	}
+// 	request.Resources.CPU = fmt.Sprintf("%vm", cpus)
+// 	request.Resources.Memory = fmt.Sprint(memory)
+
+// 	// Update label for later retrivals
+// 	(*request.Labels)["realtime"] = fmt.Sprint(realtime)
+// 	(*request.Labels)["cpu"] = fmt.Sprint(cpus)
+// 	(*request.Labels)["memory"] = fmt.Sprint(memory)
+// 	(*request.Labels)["duration"] = fmt.Sprint(duration)
+
+// 	body, err = json.Marshal(request)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+// 	req.Body = rdr
+// 	return nil
+// }
+
+// // Reserve resource for realtime deployment
+// func (rm ResourceManager) ReserveResource(req *http.Request, cpu int64, memory int64) error {
+// 	body, _ := ioutil.ReadAll(req.Body)
+// 	//rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+// 	request := requests.CreateFunctionRequest{}
+// 	err := json.Unmarshal(body, &request)
+// 	//req.Body = rdr
+
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	if request.Requests == nil {
+// 		request.Requests = &requests.FunctionResources{}
+// 	}
+// 	request.Requests.CPU = fmt.Sprintf("%vm", cpu)
+// 	request.Requests.Memory = fmt.Sprint(memory)
+// 	log.Printf("Update resource constraint: %s %s", request.Requests.CPU, request.Requests.Memory)
+
+// 	body, err = json.Marshal(request)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+// 	req.Body = rdr
+// 	return nil
+// }
+
+// Reserve resource for realtime deployment
+func (rm ResourceManager) SetSandboxResources(request *requests.CreateFunctionRequest, cpu int64, memory int64) {
+	if request.Requests == nil {
+		request.Requests = &requests.FunctionResources{}
 	}
-
-	request.Requests.CPU = fmt.Sprint(cpu)
+	request.Requests.CPU = fmt.Sprintf("%vm", cpu)
 	request.Requests.Memory = fmt.Sprint(memory)
 
-	body, err = json.Marshal(request)
-	if err != nil {
-		return err
+	if request.Limits == nil {
+		request.Limits = &requests.FunctionResources{}
 	}
-	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
-	req.Body = rdr
-	return nil
+	request.Limits.CPU = fmt.Sprintf("%vm", cpu)
+	request.Limits.Memory = fmt.Sprint(memory)
+
+	log.Printf("Update resource constraint: %d %d", cpu, memory)
 }
 
-func RestrictRuntime(req *http.Request, timeout uint64) error {
-	body, _ := ioutil.ReadAll(req.Body)
-	//rdr := ioutil.NopCloser(bytes.NewBuffer(body))
-	request := requests.CreateFunctionRequest{}
-	err := json.Unmarshal(body, &request)
-	//req.Body = rdr
+// // Reserve resource for realtime deployment
+// func (rm ResourceManager) ReserveResource(req *http.Request, cpu int64, memory int64) error {
+// 	body, _ := ioutil.ReadAll(req.Body)
+// 	//rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+// 	request := requests.CreateFunctionRequest{}
+// 	err := json.Unmarshal(body, &request)
+// 	//req.Body = rdr
 
-	if err != nil {
-		return err
-	}
+// 	if err != nil {
+// 		return err
+// 	}
 
-	if request.EnvVars == nil {
-		request.EnvVars = map[string]string{}
-	}
-	t := timeout / 1000
-	request.EnvVars["exec_timeout"] = fmt.Sprint(t)
-	request.EnvVars["read_timeout"] = fmt.Sprint(t)
-	request.EnvVars["write_timeout"] = fmt.Sprint(t)
+// 	if request.Requests == nil {
+// 		request.Requests = &requests.FunctionResources{}
+// 	}
+// 	request.Requests.CPU = fmt.Sprintf("%vm", cpu)
+// 	request.Requests.Memory = fmt.Sprint(memory)
+// 	log.Printf("Update resource constraint: %s %s", request.Requests.CPU, request.Requests.Memory)
 
-	body, err = json.Marshal(request)
-	if err != nil {
-		return err
-	}
-	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
-	req.Body = rdr
-	return nil
-}
+// 	body, err = json.Marshal(request)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+// 	req.Body = rdr
+// 	return nil
+// }
+
+// // Apply runtime restriction for resource limitation
+// func (rm ResourceManager) RestrictRuntime(req *http.Request, timeout uint64) error {
+// 	body, _ := ioutil.ReadAll(req.Body)
+// 	//rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+// 	request := requests.CreateFunctionRequest{}
+// 	err := json.Unmarshal(body, &request)
+// 	//req.Body = rdr
+
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	if request.EnvVars == nil {
+// 		request.EnvVars = map[string]string{}
+// 	}
+// 	t := float32(timeout) / 1000.0
+// 	request.EnvVars["exec_timeout"] = fmt.Sprint(t)
+// 	request.EnvVars["read_timeout"] = fmt.Sprint(t)
+// 	request.EnvVars["write_timeout"] = fmt.Sprint(t)
+
+// 	log.Printf("Restrict runtime to %f", t)
+
+// 	body, err = json.Marshal(request)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+// 	req.Body = rdr
+// 	return nil
+// }
 
 /* Scale a function by either increasing or decreasing its replicas */
 func (rm ResourceManager) Scale(functionName string, realtimeReplicas uint64) error {
@@ -276,26 +401,17 @@ func (rm ResourceManager) Scale(functionName string, realtimeReplicas uint64) er
 
 }
 
-/* Given a function name and return the following:
-   - realtime (guaranteed invocation per second)
-   - cpus (number of cpu per invocation)
-   - memory (number of memory per invocation)
-   - duration (maximum runtime)
-   - availReplicas (number of available replicas
-   - error */
-func (rm ResourceManager) DeploymentRealtimeParams(
-	functionName string) (float64, int64, int64, uint64, uint64, error) {
+// GetDeploymentParams returns deployment params of a registered function
+func (rm ResourceManager) GetDeploymentParams(functionName string) (scaling.ServiceQueryResponse, error) {
 
 	f := scaling.GetScalerInstance()
 	scaleInfo, err := f.Config.ServiceQuery.GetReplicas(functionName)
 
-	if err != nil {
-		return 0, 0, 0, 0, 10000, err
+	if err == nil {
+		f.Cache.Set(functionName, scaleInfo)
 	}
 
-	f.Cache.Set(functionName, scaleInfo)
-
-	return scaleInfo.Realtime, scaleInfo.CPU, scaleInfo.Memory, scaleInfo.Duration, scaleInfo.Replicas, nil
+	return scaleInfo, err
 }
 
 /* Check if available replicas meet expect ones */
@@ -342,6 +458,11 @@ func forwardRequest(
 	requestURL string,
 	timeout time.Duration,
 	writeRequestURI bool) (*http.Response, error) {
+
+	body, _ := ioutil.ReadAll(r.Body)
+	rdr := ioutil.NopCloser(bytes.NewBuffer(body))
+	log.Printf("Message: %s", body)
+	r.Body = rdr
 
 	upstreamReq := buildUpstreamRequest(r, baseURL, requestURL)
 	if upstreamReq.Body != nil {

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"io/ioutil"
 	"net/http"
 	"testing"
 
@@ -21,8 +20,9 @@ func Test_RequestRealtimeParams_with_realtime(t *testing.T) {
 	// (*request.Labels)["functionsize"] = "0.5"
 	// (*request.Labels)["duration"] = "100"
 	request.Realtime = 10
-	request.Resources.CPU = "0.5"
-	request.Resources.Memory = "100Mi"
+	request.Resources = &requests.FunctionResources{}
+	request.Resources.CPU = "500m"
+	request.Resources.Memory = "100M"
 	request.Timeout = 100
 	body, _ := json.Marshal(request)
 	reader := bytes.NewReader(body)
@@ -30,27 +30,28 @@ func Test_RequestRealtimeParams_with_realtime(t *testing.T) {
 	hreq.Header.Set("X-Source", "unit-test")
 
 	rm := ResourceManager{}
-	functionName, realtime, cpu, memory, duration, error := rm.RequestRealtimeParams(hreq)
+	request, error := rm.ParseRequest(hreq)
 
-	if functionName != "test" {
-		t.Errorf("RequestRealtimeParams - functionName want: %s, got %s", "test", functionName)
+	if request.Service != "test" {
+		t.Errorf("RequestRealtimeParams - functionName want: %s, got %s", "test", request.Service)
 		t.Fail()
 	}
 
-	if realtime != 10.0 {
-		t.Errorf("RequestRealtimeParams - realtime want: %s, got %f", "10.0", realtime)
+	if request.Realtime != 10.0 {
+		t.Errorf("RequestRealtimeParams - realtime want: %s, got %f", "10.0", request.Realtime)
 		t.Fail()
 	}
+	cpu, memory, _ := rm.GetResourceQuantity(*request.Resources)
 	if cpu != 500 {
-		t.Errorf("RequestRealtimeParams - size want: %s, got %f", "500", cpu)
+		t.Errorf("RequestRealtimeParams - CPU want: %s, got %d", "500", cpu)
 		t.Fail()
 	}
 	if memory != 100*1000000 {
-		t.Errorf("RequestRealtimeParams - size want: %s, got %f", "0.5", memory)
+		t.Errorf("RequestRealtimeParams - Memory want: %s, got %d", "100000000", memory)
 		t.Fail()
 	}
-	if duration != 100 {
-		t.Errorf("RequestRealtimeParams - duration: want: %s, got %d", "100", duration)
+	if request.Timeout != 100 {
+		t.Errorf("RequestRealtimeParams - duration: want: %s, got %d", "100", request.Timeout)
 		t.Fail()
 	}
 	if error != nil {
@@ -70,27 +71,23 @@ func Test_RequestRealtimeParams_without_realtime(t *testing.T) {
 	hreq.Header.Set("X-Source", "unit-test")
 
 	rm := ResourceManager{}
-	functionName, realtime, cpu, memory, duration, error := rm.RequestRealtimeParams(hreq)
+	request, error := rm.ParseRequest(hreq)
 
-	if functionName != "test" {
-		t.Errorf("RequestRealtimeParams - functionName want: %s, got %s", "test", functionName)
+	if request.Service != "test" {
+		t.Errorf("RequestRealtimeParams - functionName want: %s, got %s", "test", request.Service)
 		t.Fail()
 	}
 
-	if realtime != 0 {
-		t.Errorf("RequestRealtimeParams - realtime want: %s, got %f", "0", realtime)
+	if request.Realtime != 0 {
+		t.Errorf("RequestRealtimeParams - realtime want: %s, got %f", "0", request.Realtime)
 		t.Fail()
 	}
-	if cpu != 1000 {
-		t.Errorf("RequestRealtimeParams - size want: %s, got %f", "1000", cpu)
+	if request.Resources != nil {
+		t.Errorf("RequestRealtimeParams - size want: %s, got %s", "nil", "some unknown value")
 		t.Fail()
 	}
-	if memory != 256*1024*1024 {
-		t.Errorf("RequestRealtimeParams - size want: %s, got %f", "256M", memory)
-		t.Fail()
-	}
-	if duration != 10000 {
-		t.Errorf("RequestRealtimeParams - duration: want: %s, got %d", "10000", duration)
+	if request.Timeout != 0 {
+		t.Errorf("RequestRealtimeParams - duration: want: %s, got %d", "0", request.Timeout)
 		t.Fail()
 	}
 	if error != nil {
@@ -107,7 +104,7 @@ func Test_RequestRealtimeParams_incorrect_message(t *testing.T) {
 
 	rm := ResourceManager{}
 	//functionName, realtime, size, duration, error := rm.RequestRealtimeParams(hreq)
-	_, _, _, _, _, error := rm.RequestRealtimeParams(hreq)
+	_, error := rm.ParseRequest(hreq)
 
 	if error == nil {
 		t.Errorf("RequestRealtimeParams - error want: %s, got %s", " != nil", "nil")
@@ -116,118 +113,119 @@ func Test_RequestRealtimeParams_incorrect_message(t *testing.T) {
 
 }
 
-func Test_SetRealtimeParams_correct_params(t *testing.T) {
-	request := requests.CreateFunctionRequest{}
-	request.Service = "test"
-	request.Labels = &map[string]string{}
-	(*request.Labels)["realtime"] = "10"
-	(*request.Labels)["functionsize"] = "0.5"
-	(*request.Labels)["duration"] = "100"
-	body, _ := json.Marshal(request)
-	reader := bytes.NewReader(body)
-	hreq, _ := http.NewRequest(http.MethodPost, "/?test=1", reader)
-	hreq.Header.Set("X-Source", "unit-test")
+// func Test_SetRealtimeParams_correct_params(t *testing.T) {
+// 	request := requests.CreateFunctionRequest{}
+// 	request.Service = "test"
+// 	request.Labels = &map[string]string{}
+// 	(*request.Labels)["realtime"] = "10"
+// 	(*request.Labels)["cpu"] = "0.5"
+// 	(*request.Labels)["memory"] = "1000"
+// 	(*request.Labels)["duration"] = "100"
+// 	body, _ := json.Marshal(request)
+// 	reader := bytes.NewReader(body)
+// 	hreq, _ := http.NewRequest(http.MethodPost, "/?test=1", reader)
+// 	hreq.Header.Set("X-Source", "unit-test")
 
-	rm := ResourceManager{}
-	error := rm.SetRealtimeParams(hreq, 20, 100, 200, 1000)
+// 	rm := ResourceManager{}
+// 	error := rm.SetRealtimeParams(hreq, 20, 100, 200, 1000)
 
-	if error != nil {
-		t.Errorf("SetRealtimeParams - error want: %s, got %s", "nil", error.Error())
-		t.Fail()
-	}
-	body, _ = ioutil.ReadAll(hreq.Body)
-	request = requests.CreateFunctionRequest{}
-	error = json.Unmarshal(body, &request)
-	if error != nil {
-		t.Errorf("SetRealtimeParams - unable to unmarshal the updated request")
-		t.Fail()
-	}
-	if request.Labels == nil {
-		t.Errorf("SetRealtimeParams - empty Labels")
-		t.Fail()
-	}
+// 	if error != nil {
+// 		t.Errorf("SetRealtimeParams - error want: %s, got %s", "nil", error.Error())
+// 		t.Fail()
+// 	}
+// 	body, _ = ioutil.ReadAll(hreq.Body)
+// 	request = requests.CreateFunctionRequest{}
+// 	error = json.Unmarshal(body, &request)
+// 	if error != nil {
+// 		t.Errorf("SetRealtimeParams - unable to unmarshal the updated request")
+// 		t.Fail()
+// 	}
+// 	if request.Labels == nil {
+// 		t.Errorf("SetRealtimeParams - empty Labels")
+// 		t.Fail()
+// 	}
 
-	realtimeLabel := extractLabelValue((*request.Labels)["realtime"], 0)
-	cpuLabel := extractLabelValue((*request.Labels)["cpu"], 200)
-	memoryLabel := extractLabelValue((*request.Labels)["cpu"], 2000000)
-	durationLabel := extractLabelValue((*request.Labels)["duration"], 10000)
-	realtime := request.Realtime
-	cpu, _ := rm.GetCPUQuantity(request.Resources.CPU)
-	memory, _ := rm.GetMemoryQuantity(request.Resources.Memory)
-	duration := request.Timeout
+// 	realtimeLabel := extractLabelRealValue((*request.Labels)["realtime"], 0)
+// 	cpuLabel := extractLabelValue((*request.Labels)["cpu"], 500)
+// 	memoryLabel := extractLabelValue((*request.Labels)["memory"], 1000)
+// 	durationLabel := extractLabelValue((*request.Labels)["duration"], 100)
+// 	realtime := request.Realtime
+// 	cpu, _ := rm.GetCPUQuantity(request.Resources.CPU)
+// 	memory, _ := rm.GetMemoryQuantity(request.Resources.Memory)
+// 	duration := request.Timeout
 
-	if realtime != 20 || realtimeLabel != 20 {
-		t.Errorf("SetRealtimeParams - realtime want: %s, got %f %f", "20", realtime, realtimeLabel)
-		t.Fail()
-	}
-	if cpu != 100 || cpuLabel != 100 {
-		t.Errorf("SetRealtimeParams - size want: %s, got %f %f", "0.1", cpu, cpuLabel)
-		t.Fail()
-	}
-	if memory != 200 || memoryLabel != 200 {
-		t.Errorf("SetRealtimeParams - size want: %s, got %f %f", "0.1", memory, memoryLabel)
-		t.Fail()
-	}
-	if duration != 1000 || durationLabel != 1000 {
-		t.Errorf("SetRealtimeParams - duration want: %s, got %d", "120", duration, durationLabel)
-		t.Fail()
-	}
-}
+// 	if realtime != 20 || realtimeLabel != 20 {
+// 		t.Errorf("SetRealtimeParams - realtime want: %s, got %f %f", "20", realtime, realtimeLabel)
+// 		t.Fail()
+// 	}
+// 	if cpu != 100 || cpuLabel != 100 {
+// 		t.Errorf("SetRealtimeParams - size want: %s, got %d %d", "100", cpu, cpuLabel)
+// 		t.Fail()
+// 	}
+// 	if memory != 200 || memoryLabel != 200 {
+// 		t.Errorf("SetRealtimeParams - size want: %s, got %d %d", "0.1", memory, memoryLabel)
+// 		t.Fail()
+// 	}
+// 	if duration != 1000 || durationLabel != 1000 {
+// 		t.Errorf("SetRealtimeParams - duration want: %s, got %d %d", "120", duration, durationLabel)
+// 		t.Fail()
+// 	}
+// }
 
-func Test_SetRealtimeParams_add_realtime_params(t *testing.T) {
-	request := requests.CreateFunctionRequest{}
-	request.Service = "test"
-	request.Labels = nil
-	body, _ := json.Marshal(request)
-	reader := bytes.NewReader(body)
-	hreq, _ := http.NewRequest(http.MethodPost, "/?test=1", reader)
-	hreq.Header.Set("X-Source", "unit-test")
+// func Test_SetRealtimeParams_add_realtime_params(t *testing.T) {
+// 	request := requests.CreateFunctionRequest{}
+// 	request.Service = "test"
+// 	request.Labels = nil
+// 	body, _ := json.Marshal(request)
+// 	reader := bytes.NewReader(body)
+// 	hreq, _ := http.NewRequest(http.MethodPost, "/?test=1", reader)
+// 	hreq.Header.Set("X-Source", "unit-test")
 
-	rm := ResourceManager{}
-	error := rm.SetRealtimeParams(hreq, 20, 100, 200, 1000)
+// 	rm := ResourceManager{}
+// 	error := rm.SetRealtimeParams(hreq, 20, 100, 200, 1000)
 
-	if error != nil {
-		t.Errorf("SetRealtimeParams - error want: %s, got %s", "nil", error.Error())
-		t.Fail()
-	}
-	body, _ = ioutil.ReadAll(hreq.Body)
-	request = requests.CreateFunctionRequest{}
-	error = json.Unmarshal(body, &request)
-	if error != nil {
-		t.Errorf("SetRealtimeParams - unable to unmarshal the updated request")
-		t.Fail()
-	}
-	if request.Labels == nil {
-		t.Errorf("SetRealtimeParams - empty Labels")
-		t.Fail()
-	}
+// 	if error != nil {
+// 		t.Errorf("SetRealtimeParams - error want: %s, got %s", "nil", error.Error())
+// 		t.Fail()
+// 	}
+// 	body, _ = ioutil.ReadAll(hreq.Body)
+// 	request = requests.CreateFunctionRequest{}
+// 	error = json.Unmarshal(body, &request)
+// 	if error != nil {
+// 		t.Errorf("SetRealtimeParams - unable to unmarshal the updated request")
+// 		t.Fail()
+// 	}
+// 	if request.Labels == nil {
+// 		t.Errorf("SetRealtimeParams - empty Labels")
+// 		t.Fail()
+// 	}
 
-	realtimeLabel := extractLabelValue((*request.Labels)["realtime"], 0)
-	cpuLabel := extractLabelValue((*request.Labels)["cpu"], 200)
-	memoryLabel := extractLabelValue((*request.Labels)["cpu"], 2000000)
-	durationLabel := extractLabelValue((*request.Labels)["duration"], 10000)
-	realtime := request.Realtime
-	cpu, _ := rm.GetCPUQuantity(request.Resources.CPU)
-	memory, _ := rm.GetMemoryQuantity(request.Resources.Memory)
-	duration := request.Timeout
+// 	realtimeLabel := extractLabelRealValue((*request.Labels)["realtime"], 0)
+// 	cpuLabel := extractLabelValue((*request.Labels)["cpu"], 200)
+// 	memoryLabel := extractLabelValue((*request.Labels)["memory"], 2000000)
+// 	durationLabel := extractLabelValue((*request.Labels)["duration"], 10000)
+// 	realtime := request.Realtime
+// 	cpu, _ := rm.GetCPUQuantity(request.Resources.CPU)
+// 	memory, _ := rm.GetMemoryQuantity(request.Resources.Memory)
+// 	duration := request.Timeout
 
-	if realtime != 20 || realtimeLabel != 20 {
-		t.Errorf("SetRealtimeParams - realtime want: %s, got %f %f", "20", realtime, realtimeLabel)
-		t.Fail()
-	}
-	if cpu != 100 || cpuLabel != 100 {
-		t.Errorf("SetRealtimeParams - size want: %s, got %f %f", "0.1", cpu, cpuLabel)
-		t.Fail()
-	}
-	if memory != 200 || memoryLabel != 200 {
-		t.Errorf("SetRealtimeParams - size want: %s, got %f %f", "0.1", memory, memoryLabel)
-		t.Fail()
-	}
-	if duration != 1000 || durationLabel != 1000 {
-		t.Errorf("SetRealtimeParams - duration want: %s, got %d", "120", duration, durationLabel)
-		t.Fail()
-	}
-}
+// 	if realtime != 20 || realtimeLabel != 20 {
+// 		t.Errorf("SetRealtimeParams - realtime want: %s, got %f %f", "20", realtime, realtimeLabel)
+// 		t.Fail()
+// 	}
+// 	if cpu != 100 || cpuLabel != 100 {
+// 		t.Errorf("SetRealtimeParams - size want: %s, got %d %d", "0.1", cpu, cpuLabel)
+// 		t.Fail()
+// 	}
+// 	if memory != 200 || memoryLabel != 200 {
+// 		t.Errorf("SetRealtimeParams - size want: %s, got %d %d", "0.1", memory, memoryLabel)
+// 		t.Fail()
+// 	}
+// 	if duration != 1000 || durationLabel != 1000 {
+// 		t.Errorf("SetRealtimeParams - duration want: %s, got %d %d", "120", duration, durationLabel)
+// 		t.Fail()
+// 	}
+// }
 
 type TestServiceQuery struct {
 	Info map[string]*scaling.ServiceQueryResponse
@@ -284,31 +282,31 @@ func Test_DeploymentRealtimeParams(t *testing.T) {
 
 	rm := ResourceManager{}
 
-	realtime, cpus, mem, duration, replicas, err := rm.DeploymentRealtimeParams("noinfo")
+	params, err := rm.GetDeploymentParams("noinfo")
 	if err == nil {
 		t.Errorf("DeploymentRealtimeParams - get noinfo, want: %s, got %s", "function not found error", "nil")
 		t.Fail()
 	}
 
-	realtime, cpus, mem, duration, replicas, err = rm.DeploymentRealtimeParams("test")
+	params, err = rm.GetDeploymentParams("test")
 	if err != nil {
 		t.Errorf("DeploymentRealtimeParams - get test error, want: %s, got %s", "nil", err.Error())
 		t.Fail()
 	}
-	if realtime != realTime {
-		t.Errorf("DeploymentRealtimeParams - get test realtime, want: %f, got %f", realTime, realtime)
+	if params.Realtime != realTime {
+		t.Errorf("DeploymentRealtimeParams - get test realtime, want: %f, got %f", realTime, params.Realtime)
 		t.Fail()
 	}
-	if cpus != cpu {
-		t.Errorf("DeploymentRealtimeParams - get test size, want: %f, got %f", cpu, cpus)
+	if params.CPU != cpu {
+		t.Errorf("DeploymentRealtimeParams - get test size, want: %d, got %d", cpu, params.CPU)
 		t.Fail()
 	}
-	if memory != mem {
-		t.Errorf("DeploymentRealtimeParams - get test size, want: %f, got %f", memory, mem)
+	if memory != params.Memory {
+		t.Errorf("DeploymentRealtimeParams - get test size, want: %d, got %d", memory, params.Memory)
 		t.Fail()
 	}
-	if duration != functionDuration {
-		t.Errorf("DeploymentRealtimeParams - get test duration, want: %d, got %d", functionDuration, duration)
+	if params.Duration != functionDuration {
+		t.Errorf("DeploymentRealtimeParams - get test duration, want: %d, got %d", functionDuration, params.Duration)
 		t.Fail()
 	}
 }

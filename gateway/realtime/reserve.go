@@ -2,9 +2,9 @@ package realtime
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log"
-	"math"
 	"net/http"
 	"time"
 )
@@ -25,69 +25,78 @@ func (ac ReserveAdmissionControl) Register(
 	rm := ResourceManager{}
 
 	// Get realtime params
-	functionName, realtime, cpu, memory, duration, error := rm.RequestRealtimeParams(r)
-	if error != nil {
+	// functionName, realtime, cpu, memory, duration, error := rm.RequestRealtimeParams(r)
+	request, err := rm.ParseRequest(r)
+	if err != nil {
+		log.Printf("Reading parameters error: %s", err)
 		statusCode := http.StatusNotFound
 		w.WriteHeader(statusCode)
-		error = errors.New("Function parametera are invalid")
-		return statusCode, error
+		err = errors.New("Function parameters are invalid")
+		return statusCode, err
 	}
 	// numReplicas := uint64(math.Ceil(realtime * size * float64(duration)))
 	// if numReplicas < 1 {
 	// 	numReplicas = 1
 	// }
-	numReplicas := uint64(1)
-	totalCpu := int64(realtime * float64(cpu) * float64(duration) / 1000)
-	totalMemory := int64(realtime * float64(memory) * float64(duration) / 1000)
-	if realtime > 0 {
-		rm.ReserveResource(r, totalCpu, totalMemory)
+	// numReplicas := uint64(1)
+	cpus, memory, err := rm.GetResourceQuantity(*request.Resources)
+	if err != nil {
+		log.Printf("Reading parameters error: %s", err)
+		statusCode := http.StatusNotFound
+		w.WriteHeader(statusCode)
+		err = errors.New("Function parameters are invalid")
+		return statusCode, err
 	}
-	if timeout > 0 {
-		rm.RestrictRuntime(r, timeout)
+	//numReplicas := 1
+	totalCPU := int64(request.Realtime * float64(cpus) * float64(request.Timeout) / 1000)
+	totalMemory := int64(request.Realtime * float64(memory) * float64(request.Timeout) / 1000)
+	log.Printf("CPU: %d Memory %d", totalCPU, totalMemory)
+	if request.Realtime > 0 {
+		rm.SetSandboxResources(&request, totalCPU, totalMemory)
 	}
-	// Create function image
-	res, error := rm.CreateImage(r, proxyClient, baseURL, requestURL, timeout, writeRequestURI)
-	if error != nil {
+	rm.PackageRequest(request, r)
+	res, err := rm.CreateImage(r, proxyClient, baseURL, requestURL, timeout, writeRequestURI)
+	if err != nil {
 		if res.Body != nil {
 			io.CopyBuffer(w, res.Body, nil)
 		}
 		copyHeaders(w.Header(), &res.Header)
 		w.WriteHeader(res.StatusCode)
-		return res.StatusCode, error
+		return res.StatusCode, err
 	}
 
 	statusCode := http.StatusAccepted
 	// The function is deployed successfully, now we need to scale to enforce the
 	// guaranteed invocation rate
-	if realtime > 0 {
-		canScale := false
-		// Scale!
-		log.Printf("Scale function %s to %d\n", functionName, numReplicas)
-		error = rm.Scale(functionName, numReplicas)
-		if error == nil {
-			retries := numReplicas * 2
-			if retries < 10 {
-				retries = 10
-			}
-			canScale = rm.WaitForAvailReplicas(functionName, numReplicas, retries, 1000)
-		}
-		// Check if we can scale successfully
-		if !canScale {
-			log.Printf("Cannot scale\n")
-			// If we fail to scale the function, then rollback the deployment
-			_, error := rm.RemoveImage(r, proxyClient, baseURL, requestURL, timeout, writeRequestURI)
-			if error != nil {
-				log.Printf("Unable to rollback function %s deployment", functionName)
-			}
-			statusCode = http.StatusInternalServerError
-			error = errors.New("Insuffcient resources. Cancel deployment")
-		}
-	}
+	// if realtime > 0 {
+	// 	canScale := false
+	// 	// Scale!
+	// 	log.Printf("Scale function %s to %d\n", functionName, numReplicas)
+	// 	error = rm.Scale(functionName, numReplicas)
+	// 	if error == nil {
+	// 		retries := numReplicas * 2
+	// 		if retries < 10 {
+	// 			retries = 10
+	// 		}
+	// 		canScale = rm.WaitForAvailReplicas(functionName, numReplicas, retries, 1000)
+	// 	}
+	// 	// Check if we can scale successfully
+	// 	if !canScale {
+	// 		log.Printf("Cannot scale\n")
+	// 		// If we fail to scale the function, then rollback the deployment
+	// 		_, error := rm.RemoveImage(r, proxyClient, baseURL, requestURL, timeout, writeRequestURI)
+	// 		if error != nil {
+	// 			log.Printf("Unable to rollback function %s deployment", functionName)
+	// 		}
+	// 		statusCode = http.StatusInternalServerError
+	// 		error = errors.New("Insuffcient resources. Cancel deployment")
+	// 	}
+	// }
 	w.WriteHeader(statusCode)
-	if error != nil {
-		w.Write([]byte(error.Error()))
+	if err != nil {
+		w.Write([]byte(err.Error()))
 	}
-	return statusCode, error
+	return statusCode, err
 }
 
 func (ac ReserveAdmissionControl) Update(
@@ -103,24 +112,42 @@ func (ac ReserveAdmissionControl) Update(
 	rm := ResourceManager{}
 
 	// First, extract real-time parameters from the request
-	functionName, realtime, size, duration, error := rm.RequestRealtimeParams(r)
-	if error != nil {
+	request, err := rm.ParseRequest(r)
+	if err != nil {
 		statusCode := http.StatusNotFound
 		w.WriteHeader(statusCode)
-		error = errors.New("Function parametera are invalid")
-		return statusCode, error
+		err = errors.New("Function parameters are invalid")
+		return statusCode, err
 	}
-	numReplicas := uint64(math.Ceil(realtime * size * float64(duration)))
-	if numReplicas < 1 {
-		numReplicas = 1
+	// numReplicas := uint64(math.Ceil(realtime * size * float64(duration)))
+	// if numReplicas < 1 {
+	// 	numReplicas = 1
+	// }
+	functionName := request.Service
+	numReplicas := uint64(1)
+	cpus, memory, err := rm.GetResourceQuantity(*request.Resources)
+	if err != nil {
+		log.Printf("Reading parameters error: %s", err)
+		statusCode := http.StatusNotFound
+		w.WriteHeader(statusCode)
+		err = errors.New("Function parameters are invalid")
+		return statusCode, err
 	}
+	//numReplicas := 1
+	totalCPU := int64(request.Realtime * float64(cpus) * float64(request.Timeout) / 1000)
+	totalMemory := int64(request.Realtime * float64(memory) * float64(request.Timeout) / 1000)
+	log.Printf("CPU: %d Memory %d", totalCPU, totalMemory)
+	if request.Realtime > 0 {
+		rm.SetSandboxResources(&request, totalCPU, totalMemory)
+	}
+	rm.PackageRequest(request, r)
 
 	// Capture the current real-time parameter if backoff is needed
-	prevRealtime, prevSize, prevDuration, prevReplicas, error := rm.DeploymentRealtimeParams(functionName)
-	if error != nil {
+	prevParams, err := rm.GetDeploymentParams(functionName)
+	if err != nil {
 		statusCode := http.StatusNotFound
 		w.WriteHeader(statusCode)
-		return statusCode, error
+		return statusCode, err
 	}
 
 	// Update the image
@@ -134,12 +161,12 @@ func (ac ReserveAdmissionControl) Update(
 		return res.StatusCode, error
 	}
 	statusCode := http.StatusAccepted
-	if prevRealtime > 0 || realtime > 0 {
+	if prevParams.Realtime > 0 || request.Realtime > 0 {
 		// Scale!
 		canScale := false
 		error = rm.Scale(functionName, numReplicas)
 		if error == nil {
-			if prevRealtime < realtime {
+			if prevParams.Realtime < request.Realtime {
 				// Only wait for scale up
 				retries := numReplicas * 2
 				if retries < 10 {
@@ -155,7 +182,14 @@ func (ac ReserveAdmissionControl) Update(
 		// Check if we can scale successfully
 		if !canScale {
 			// Set back the real time parameter
-			error = rm.SetRealtimeParams(r, prevRealtime, prevSize, prevDuration)
+			request.Realtime = prevParams.Realtime
+			request.Resources.CPU = fmt.Sprintf("%vm", prevParams.CPU)
+			request.Resources.Memory = fmt.Sprint(prevParams.Memory)
+			request.Timeout = prevParams.Duration
+			totalCPU = int64(request.Realtime * float64(prevParams.CPU) * float64(request.Timeout) / 1000)
+			totalMemory = int64(request.Realtime * float64(prevParams.Memory) * float64(request.Timeout) / 1000)
+			rm.SetSandboxResources(&request, totalCPU, totalMemory)
+			error = rm.PackageRequest(request, r)
 			if error != nil {
 				log.Printf("Unable set back real-time params: %s", error.Error())
 			}
@@ -164,7 +198,7 @@ func (ac ReserveAdmissionControl) Update(
 			if error != nil {
 				log.Printf("Unable to rollback function %s update", functionName)
 			}
-			error = rm.Scale(functionName, prevReplicas)
+			error = rm.Scale(functionName, prevParams.Replicas)
 			if error != nil {
 				log.Printf("Unable to rollback function %s scale", functionName)
 			}

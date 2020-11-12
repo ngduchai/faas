@@ -16,8 +16,8 @@ import (
 	"github.com/ngduchai/faas/gateway/realtime"
 	"github.com/ngduchai/faas/gateway/scaling"
 	"github.com/ngduchai/faas/gateway/types"
+	natsHandler "github.com/ngduchai/nats-queue-worker/handler"
 	"github.com/openfaas/faas-provider/auth"
-	natsHandler "github.com/openfaas/nats-queue-worker/handler"
 )
 
 func main() {
