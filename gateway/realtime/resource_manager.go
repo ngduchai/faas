@@ -276,15 +276,15 @@ func (rm ResourceManager) GetResourceQuantity(req requests.FunctionResources) (i
 func (rm ResourceManager) SetSandboxResources(request *requests.CreateFunctionRequest, cpu int64, memory int64) {
 	if request.Requests == nil {
 		request.Requests = &requests.FunctionResources{}
+		request.Requests.CPU = fmt.Sprintf("%vm", cpu)
+		request.Requests.Memory = fmt.Sprint(memory)
 	}
-	request.Requests.CPU = fmt.Sprintf("%vm", cpu)
-	request.Requests.Memory = fmt.Sprint(memory)
 
 	if request.Limits == nil {
 		request.Limits = &requests.FunctionResources{}
+		request.Limits.CPU = fmt.Sprintf("%vm", cpu)
+		request.Limits.Memory = fmt.Sprint(memory)
 	}
-	request.Limits.CPU = fmt.Sprintf("%vm", cpu)
-	request.Limits.Memory = fmt.Sprint(memory)
 
 	log.Printf("Update resource constraint: %d %d", cpu, memory)
 }

@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/ngduchai/faas/gateway/requests"
 )
 
 type ReserveAdmissionControl struct {
@@ -39,19 +41,26 @@ func (ac ReserveAdmissionControl) Register(
 	// 	numReplicas = 1
 	// }
 	// numReplicas := uint64(1)
-	cpus, memory, err := rm.GetResourceQuantity(*request.Resources)
-	if err != nil {
-		log.Printf("Reading parameters error: %s", err)
-		statusCode := http.StatusNotFound
-		w.WriteHeader(statusCode)
-		err = errors.New("Function parameters are invalid")
-		return statusCode, err
+	if request.Resources == nil {
+		request.Resources = &requests.FunctionResources{
+			CPU:    "0",
+			Memory: "0",
+		}
 	}
-	//numReplicas := 1
-	totalCPU := int64(request.Realtime * float64(cpus) * float64(request.Timeout) / 1000)
-	totalMemory := int64(request.Realtime * float64(memory) * float64(request.Timeout) / 1000)
-	log.Printf("CPU: %d Memory %d", totalCPU, totalMemory)
 	if request.Realtime > 0 {
+		cpus, memory, err := rm.GetResourceQuantity(*request.Resources)
+		if err != nil {
+			log.Printf("Reading parameters error: %s", err)
+			statusCode := http.StatusNotFound
+			w.WriteHeader(statusCode)
+			err = errors.New("Function parameters are invalid")
+			return statusCode, err
+		}
+		//numReplicas := 1
+		log.Printf("per-invocation: cpus: %d, memory: %d\n", cpus, memory)
+		totalCPU := int64(request.Realtime * float64(cpus) * float64(request.Timeout) / 1000)
+		totalMemory := int64(request.Realtime * float64(memory) * float64(request.Timeout) / 1000)
+		log.Printf("CPU: %d Memory %d", totalCPU, totalMemory)
 		rm.SetSandboxResources(&request, totalCPU, totalMemory)
 	}
 	rm.PackageRequest(request, r)
@@ -95,7 +104,12 @@ func (ac ReserveAdmissionControl) Register(
 	w.WriteHeader(statusCode)
 	if err != nil {
 		w.Write([]byte(err.Error()))
+	} else {
+		// Create handler
+		log.Println("Create function handler")
+		SetFunctionHandler(request)
 	}
+
 	return statusCode, err
 }
 
@@ -213,6 +227,10 @@ func (ac ReserveAdmissionControl) Update(
 	w.WriteHeader(statusCode)
 	if error != nil {
 		w.Write([]byte(error.Error()))
+	} else {
+		// Update function handler
+		log.Println("Update function handler")
+		SetFunctionHandler(request)
 	}
 	return statusCode, error
 
@@ -238,6 +256,11 @@ func (ac ReserveAdmissionControl) Unregister(
 		}
 		copyHeaders(w.Header(), &res.Header)
 		w.WriteHeader(res.StatusCode)
+	}
+	request, err := rm.ParseRequest(r)
+	if err == nil {
+		log.Println("Remove function handler")
+		RemoveFunctionHandler(request.Service)
 	}
 	return http.StatusAccepted, nil
 }

@@ -4,11 +4,9 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/ngduchai/faas/gateway/handlers"
-	"github.com/ngduchai/faas/gateway/scaling"
 	"github.com/ngduchai/faas/gateway/types"
 )
 
@@ -119,54 +117,55 @@ func MakeRealtimeDeleteHandler(
 
 func MakeRealtimeInvokeHandler(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		originalURL := r.URL.String()
-		tokens := strings.Split(originalURL, "/")
-		functionName := tokens[len(tokens)-1]
-		log.Printf("Invoke function %s", functionName)
+		Invoke(next, w, r)
+		// originalURL := r.URL.String()
+		// tokens := strings.Split(originalURL, "/")
+		// functionName := tokens[len(tokens)-1]
+		// log.Printf("Invoke function %s", functionName)
 
-		scaler := scaling.GetScalerInstance()
+		// scaler := scaling.GetScalerInstance()
 
-		callid := r.Header.Get("X-Call-Id")
-		_, added := scaler.BypassMap.Load(callid)
-		if added {
-			scaler.BypassMap.Delete(callid)
-		}
-		numTries := 0 // No retry, if the rate limit is reached, just reject the execution
-		retryLimit := 1
-		for !added && numTries < retryLimit {
+		// callid := r.Header.Get("X-Call-Id")
+		// _, added := scaler.BypassMap.Load(callid)
+		// if added {
+		// 	scaler.BypassMap.Delete(callid)
+		// }
+		// numTries := 0 // No retry, if the rate limit is reached, just reject the execution
+		// retryLimit := 1
+		// for !added && numTries < retryLimit {
 
-			invokeTime := time.Now()
-			scaleInfo, hit := scaler.Cache.Get(functionName)
-			if !hit {
-				scaleInfo, err := scaler.Config.ServiceQuery.GetReplicas(functionName)
+		// 	invokeTime := time.Now()
+		// 	scaleInfo, hit := scaler.Cache.Get(functionName)
+		// 	if !hit {
+		// 		scaleInfo, err := scaler.Config.ServiceQuery.GetReplicas(functionName)
 
-				if err == nil {
-					scaler.Cache.Set(functionName, scaleInfo)
-				} else {
-					next(w, r)
-					return
-				}
-			}
-			limit := scaleInfo.Realtime
-			if limit == 0.0 {
-				// Best effort invocation when no guarantee is enforced
-				added = true
-				break
-			}
-			_, _, added = scaler.Cache.UpdateInvocation(functionName, invokeTime)
+		// 		if err == nil {
+		// 			scaler.Cache.Set(functionName, scaleInfo)
+		// 		} else {
+		// 			next(w, r)
+		// 			return
+		// 		}
+		// 	}
+		// 	limit := scaleInfo.Realtime
+		// 	if limit == 0.0 {
+		// 		// Best effort invocation when no guarantee is enforced
+		// 		added = true
+		// 		break
+		// 	}
+		// 	_, _, added = scaler.Cache.UpdateInvocation(functionName, invokeTime)
 
-			if !added {
-				wait := 1 / (100 * scaleInfo.Realtime) // --> try to spread out the requests
-				numTries++
-				time.Sleep(time.Duration(wait*1000) * time.Millisecond)
-			}
-		}
+		// 	if !added {
+		// 		wait := 1 / (100 * scaleInfo.Realtime) // --> try to spread out the requests
+		// 		numTries++
+		// 		time.Sleep(time.Duration(wait*1000) * time.Millisecond)
+		// 	}
+		// }
 
-		if !added {
-			w.WriteHeader(http.StatusRequestTimeout)
-		} else {
-			next(w, r)
-		}
+		// if !added {
+		// 	w.WriteHeader(http.StatusRequestTimeout)
+		// } else {
+		// 	next(w, r)
+		// }
 	}
 }
 
