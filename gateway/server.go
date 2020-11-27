@@ -134,8 +134,12 @@ func main() {
 			log.Fatalln(queueErr)
 		}
 
+		// faasHandlers.QueuedProxy = handlers.MakeNotifierWrapper(
+		// 	handlers.MakeCallIDMiddleware(handlers.MakeQueuedProxy(metricsOptions, true, natsQueue, functionURLTransformer)),
+		// 	forwardingNotifiers,
+		// )
 		faasHandlers.QueuedProxy = handlers.MakeNotifierWrapper(
-			handlers.MakeCallIDMiddleware(handlers.MakeQueuedProxy(metricsOptions, true, natsQueue, functionURLTransformer)),
+			handlers.MakeCallIDMiddleware(realtime.MakeQueuedProxy(metricsOptions, true, natsQueue, functionURLTransformer)),
 			forwardingNotifiers,
 		)
 
