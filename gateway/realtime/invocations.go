@@ -33,6 +33,7 @@ type InvocationHandler struct {
 	Stop       chan bool
 	Update     chan bool
 	BufferSize int
+	Idle       chan bool
 }
 
 // SetFunctionHandler create handler for a new function or update an existing one
@@ -62,6 +63,7 @@ func SetFunctionHandler(f requests.CreateFunctionRequest) {
 			Realtime: f.Realtime,
 			Stop:     make(chan bool),
 			Update:   make(chan bool),
+			Idle:     make(chan bool),
 		}
 		if f.Realtime > 0 {
 			handler.Timing = time.NewTicker(time.Duration(1 / f.Realtime * 1000000000))
@@ -73,6 +75,11 @@ func SetFunctionHandler(f requests.CreateFunctionRequest) {
 		functionHandlers.Store(functionName, &handler)
 		log.Printf("Starting handler for %s\n", functionName)
 		go func() {
+			timeout := 10000 * time.Second
+			if handler.Realtime > 0 {
+				timeout = time.Duration(1 / f.Realtime * 1000000000000)
+			}
+			checktime := time.Now()
 			for {
 				select {
 				case <-handler.Stop:
@@ -89,7 +96,8 @@ func SetFunctionHandler(f requests.CreateFunctionRequest) {
 							log.Println("Invocation channels are closed, stop scheduling invocations")
 							return
 						} else {
-							// log.Printf("Executing sync %s", functionName)
+							log.Printf("Executing async %s after %d\n", functionName, time.Since(checktime)/time.Millisecond)
+							checktime = time.Now()
 							go func() {
 								asyncInvocation.next(asyncInvocation.w, asyncInvocation.r)
 								asyncInvocation.cond.Signal()
@@ -100,14 +108,56 @@ func SetFunctionHandler(f requests.CreateFunctionRequest) {
 							log.Println("Invocation channels are closed, stop scheduling invocations")
 							return
 						} else {
-							// log.Printf("Executing async %s", functionName)
+							// log.Printf("Executing sync %s", functionName)
 							go func() {
 								syncInvocation.next(syncInvocation.w, syncInvocation.r)
 								syncInvocation.cond.Signal()
 							}()
 						}
-					default:
-						// No invocation comes, go sleep
+					case <-handler.Stop:
+						handler.Timing.Stop()
+						log.Printf("Handler for %s stops", functionName)
+						return
+					case <-handler.Update:
+						log.Printf("Update handler timing %s\n", functionName)
+					case <-time.After(timeout):
+						handler.Timing = time.NewTicker(time.Duration(1 / f.Realtime * 1000000000))
+						//default:
+						// log.Printf("Invocation queue of %s is empty at timer tick, stop timming", functionName)
+						// handler.Timing.Stop()
+						// log.Printf("Enter idle state, waiting for invocation %s", functionName)
+						// select {
+						// case asyncInvocation, ok := <-handler.AsyncInvs:
+						// 	if !ok {
+						// 		log.Println("Invocation channels are closed, stop scheduling invocations")
+						// 		return
+						// 	} else {
+						// 		// log.Printf("Executing sync %s", functionName)
+						// 		go func() {
+						// 			asyncInvocation.next(asyncInvocation.w, asyncInvocation.r)
+						// 			asyncInvocation.cond.Signal()
+						// 		}()
+						// 	}
+						// case syncInvocation, ok := <-handler.SyncInvs:
+						// 	if !ok {
+						// 		log.Println("Invocation channels are closed, stop scheduling invocations")
+						// 		return
+						// 	} else {
+						// 		// log.Printf("Executing async %s", functionName)
+						// 		go func() {
+						// 			syncInvocation.next(syncInvocation.w, syncInvocation.r)
+						// 			syncInvocation.cond.Signal()
+						// 		}()
+						// 	}
+						// }
+						// // Restart timmer if the function is realtime
+						// if f.Realtime > 0 {
+						// 	log.Printf("Invocation to %s, restart timmer\n", functionName)
+						// 	handler.Timing = time.NewTicker(time.Duration(1 / f.Realtime * 1000000000))
+						// }
+					}
+					if len(handler.Timing.C) > 0 && f.Realtime > 0 {
+						handler.Timing = time.NewTicker(time.Duration(1 / f.Realtime * 1000000000))
 					}
 				}
 			}
@@ -161,6 +211,8 @@ func Invoke(next http.HandlerFunc, w http.ResponseWriter, r *http.Request) error
 	functionName := tokens[len(tokens)-1]
 	// log.Printf("Invoke function: %s\n", functionName)
 
+	start := time.Now()
+
 	entry, ok := functionHandlers.Load(functionName)
 	if !ok {
 		// no handler exist, forward for further processing
@@ -190,10 +242,11 @@ func Invoke(next http.HandlerFunc, w http.ResponseWriter, r *http.Request) error
 			case handler.AsyncInvs <- invocation:
 				// Successfully add new invocation to the channel for real-time scheduling
 				// Wait until the execution success
-				log.Printf("Add invocation to async queue %s\n", functionName)
+				log.Printf("Add invocation to async queue %s: %d\n", functionName, time.Since(start)/time.Millisecond)
 				invocation.cond.L.Lock()
 				invocation.cond.Wait()
 				invocation.cond.L.Unlock()
+				log.Printf("Execute invocation %s: %d ms\n", functionName, time.Since(start)/time.Millisecond)
 				return nil
 			default:
 				// Unable to add new invocation because the buffer is full
